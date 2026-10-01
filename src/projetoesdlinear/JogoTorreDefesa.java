@@ -20,6 +20,14 @@ import java.util.List;
  * descreve. Trocar ou adicionar mapas não muda nada aqui: a tela de seleção
  * gera um botão para cada mapa que existir em Mapas.disponiveis().
  * 
+ * Na tela JOGANDO tem também: um painel de torres embaixo (igual o menu de
+ * seleção do Bloons), o dinheiro do jogador, e três Manequim espalhados
+ * pelo mapa só pra testar as torres atacando. Clicar num botão do painel
+ * seleciona o tipo de torre; clicar numa célula de grama livre compra e
+ * posiciona uma torre nova ali; clicar numa torre já colocada com o mesmo
+ * tipo selecionado compra outra e funde (Torre.aplicarMelhoria()) --
+ * exatamente a mecânica de melhoria por fusão que o Torre.java já tinha.
+ * 
  * @author Prof. Dr. David Buzatto
  */
 public class JogoTorreDefesa extends EngineFrame {
@@ -57,6 +65,26 @@ public class JogoTorreDefesa extends EngineFrame {
     // pausa: fundo escurecido por cima do jogo congelado
     private static final Color COR_OVERLAY_PAUSA = new Color( 0, 0, 0, 150 );
     
+    // uma cor por tipo de torre, só pra diferenciar visualmente por enquanto
+    // (ainda não tem arte de verdade)
+    private static final Color COR_TORRE_BANCO = new Color( 212, 175, 55 );
+    private static final Color COR_TORRE_TACADOR = new Color( 90, 140, 220 );
+    private static final Color COR_TORRE_BOXEADOR = new Color( 200, 70, 60 );
+    private static final Color COR_TORRE_GENERICA = new Color( 150, 150, 150 );
+    private static final Color COR_BORDA_TORRE = new Color( 20, 20, 20 );
+    
+    // manequins: uma bolinha colorida por manequim, só pra diferenciar
+    private static final Color[] CORES_MANEQUINS = {
+        new Color( 220, 70, 70 ), new Color( 70, 120, 220 ), new Color( 230, 200, 60 )
+    };
+    private static final Color COR_BORDA_MANEQUIM = new Color( 20, 20, 20 );
+    
+    // painel de torres (embaixo, estilo Bloons) e HUD
+    private static final Color COR_PAINEL_FUNDO = new Color( 24, 24, 26 );
+    private static final Color COR_BOTAO_SELECIONADO = new Color( 88, 166, 63 );
+    private static final Color COR_BOTAO_DESABILITADO = new Color( 40, 40, 40 );
+    private static final Color COR_PREVIEW_ALCANCE = new Color( 255, 255, 255, 60 );
+    
     //==========================================================================
     // ATRIBUTOS
     //==========================================================================
@@ -78,6 +106,15 @@ public class JogoTorreDefesa extends EngineFrame {
     
     private MapaConfig mapa;
     private TipoCelula[][] grade;
+    
+    private static final int DINHEIRO_INICIAL = 20; // dá exatamente pro Banco de dinheiro
+    private static final double ALTURA_PAINEL = 74;
+    
+    private int dinheiro;
+    private List<Torre> torresPosicionadas;
+    private Torre tipoDeTorreSelecionada;
+    private List<Botao> botoesTorres;
+    private List<Manequim> manequins;
     
     public JogoTorreDefesa() {
         
@@ -107,8 +144,29 @@ public class JogoTorreDefesa extends EngineFrame {
         botaoMenuPrincipal = new Botao( CENTRO_X - 120, ALTURA_JANELA * 0.46 + 72, 240, 56, "Menu principal" );
         botoesMapas = new ArrayList<>();
         gradesMapas = new ArrayList<>();
+        botoesTorres = new ArrayList<>();
         
         montarBotoesDosMapas();
+        montarBotoesDeTorres();
+        
+    }
+    
+    /** Um botão por torre em Torres.disponiveis(), lado a lado no painel de baixo. */
+    private void montarBotoesDeTorres() {
+        
+        List<Torre> disponiveis = Torres.disponiveis();
+        
+        double largura = 160;
+        double altura = 54;
+        double espaco = 12;
+        double larguraTotal = disponiveis.size() * largura + ( disponiveis.size() - 1 ) * espaco;
+        double x = CENTRO_X - larguraTotal / 2;
+        double y = ALTURA_JANELA - ALTURA_PAINEL + ( ALTURA_PAINEL - altura ) / 2.0;
+        
+        for ( Torre t : disponiveis ) {
+            botoesTorres.add( new Botao( x, y, largura, altura, t.getNome() ) );
+            x += largura + espaco;
+        }
         
     }
     
@@ -138,8 +196,69 @@ public class JogoTorreDefesa extends EngineFrame {
     }
     
     private void carregarMapa( MapaConfig novoMapa ) {
+        
         mapa = novoMapa;
         grade = mapa.paraGrade();
+        
+        dinheiro = DINHEIRO_INICIAL;
+        torresPosicionadas = new ArrayList<>();
+        tipoDeTorreSelecionada = null;
+        
+        posicionarManequins();
+        
+    }
+    
+    /**
+     * Espalha os três manequins de teste pela malha, cada um perto de uma
+     * fração diferente da largura do mapa (20%, 50%, 80%), procurando a
+     * célula de grama livre mais próxima daquele ponto.
+     */
+    private void posicionarManequins() {
+        
+        manequins = new ArrayList<>();
+        double[] fracoesDeColuna = { 0.2, 0.5, 0.8 };
+        
+        for ( int i = 0; i < fracoesDeColuna.length; i++ ) {
+            
+            int colunaAlvo = (int) ( mapa.getColunas() * fracoesDeColuna[i] );
+            int linhaAlvo = mapa.getLinhas() / 2;
+            int[] posicao = encontrarCelulaDeGramaMaisProxima( colunaAlvo, linhaAlvo );
+            
+            Manequim m = new Manequim( "Manequim " + ( i + 1 ) );
+            m.posicionarEm( posicao[0], posicao[1] );
+            manequins.add( m );
+            
+        }
+        
+    }
+    
+    /**
+     * Varre a malha em anéis cada vez maiores a partir de (coluna, linha)
+     * até achar uma célula de grama livre -- assim os manequins sempre
+     * acham um lugar válido, não importa o desenho do mapa.
+     */
+    private int[] encontrarCelulaDeGramaMaisProxima( int coluna, int linha ) {
+        
+        int raioMaximo = mapa.getColunas() + mapa.getLinhas();
+        
+        for ( int raio = 0; raio < raioMaximo; raio++ ) {
+            for ( int dl = -raio; dl <= raio; dl++ ) {
+                for ( int dc = -raio; dc <= raio; dc++ ) {
+                    
+                    int c = coluna + dc;
+                    int l = linha + dl;
+                    
+                    if ( c >= 0 && c < mapa.getColunas() && l >= 0 && l < mapa.getLinhas()
+                            && grade[l][c] == TipoCelula.GRAMA ) {
+                        return new int[]{ c, l };
+                    }
+                    
+                }
+            }
+        }
+        
+        return new int[]{ 0, 0 }; // não deveria acontecer num mapa com grama sobrando
+        
     }
     
     @Override
@@ -178,12 +297,31 @@ public class JogoTorreDefesa extends EngineFrame {
                 break;
                 
             case JOGANDO:
+                
                 botaoPausar.mouseSobre = botaoPausar.contem( mx, my );
                 mouseSobreAlgumBotao = botaoPausar.mouseSobre;
                 if ( clicou && botaoPausar.mouseSobre ) {
                     estado = EstadoJogo.PAUSADO;
                 }
-                // ainda sem lógica de jogo (torres, inimigos, ondas) -- só o mapa por enquanto
+                
+                List<Torre> tiposDisponiveis = Torres.disponiveis();
+                for ( int i = 0; i < botoesTorres.size(); i++ ) {
+                    Botao b = botoesTorres.get( i );
+                    b.mouseSobre = b.contem( mx, my );
+                    mouseSobreAlgumBotao = mouseSobreAlgumBotao || b.mouseSobre;
+                    if ( clicou && b.mouseSobre ) {
+                        Torre prototipo = tiposDisponiveis.get( i );
+                        tipoDeTorreSelecionada = ( tipoDeTorreSelecionada == prototipo ) ? null : prototipo;
+                    }
+                }
+                
+                // clique no mapa (fora do painel de baixo) com uma torre selecionada
+                if ( clicou && tipoDeTorreSelecionada != null && my < ALTURA_JANELA - ALTURA_PAINEL ) {
+                    tentarColocarOuMelhorarTorre( mx, my );
+                }
+                
+                atualizarTorres( delta );
+                
                 break;
                 
             case PAUSADO:
@@ -205,6 +343,135 @@ public class JogoTorreDefesa extends EngineFrame {
     }
     
     //==========================================================================
+    // TORRES E COMBATE
+    //==========================================================================
+    
+    /**
+     * Célula clicada no mapa com um tipo de torre selecionado no painel:
+     * se estiver livre (e for grama), compra e posiciona uma torre nova;
+     * se já tiver uma torre do MESMO tipo, compra outra e funde nela
+     * (Torre.aplicarMelhoria()) -- essa é a mecânica de melhoria por
+     * fusão. Não faz nada se não tiver dinheiro, se a célula for caminho,
+     * se tiver uma torre de outro tipo, ou se a torre já estiver no nível
+     * máximo.
+     */
+    private void tentarColocarOuMelhorarTorre( int mx, int my ) {
+        
+        int tile = mapa.getTamanhoTile();
+        int coluna = mx / tile;
+        int linha = my / tile;
+        
+        if ( coluna < 0 || coluna >= mapa.getColunas() || linha < 0 || linha >= mapa.getLinhas() ) {
+            return;
+        }
+        
+        if ( grade[linha][coluna] == TipoCelula.CAMINHO ) {
+            return;
+        }
+        
+        int custo = tipoDeTorreSelecionada.getCustoBase();
+        if ( dinheiro < custo ) {
+            return;
+        }
+        
+        Torre torreNaCelula = encontrarTorreEm( coluna, linha );
+        
+        if ( torreNaCelula != null ) {
+            
+            if ( !torreNaCelula.ehMesmoTipo( tipoDeTorreSelecionada )
+                    || torreNaCelula.getNivel() >= torreNaCelula.getNivelMaximo() ) {
+                return;
+            }
+            
+            dinheiro -= custo;
+            torreNaCelula.aplicarMelhoria( Torres.criarNova( tipoDeTorreSelecionada ) );
+            
+        } else {
+            
+            dinheiro -= custo;
+            Torre novaTorre = Torres.criarNova( tipoDeTorreSelecionada );
+            novaTorre.posicionarEm( coluna, linha );
+            torresPosicionadas.add( novaTorre );
+            
+        }
+        
+    }
+    
+    private Torre encontrarTorreEm( int coluna, int linha ) {
+        
+        for ( Torre t : torresPosicionadas ) {
+            if ( t.getColuna() == coluna && t.getLinha() == linha ) {
+                return t;
+            }
+        }
+        
+        return null;
+        
+    }
+    
+    /**
+     * A cada frame: o Banco de dinheiro avança seu próprio cooldown e
+     * gera dinheiro quando pronto; as demais torres avançam o cooldown de
+     * ataque e, quando prontas, atacam o manequim vivo mais próximo que
+     * estiver dentro do alcance.
+     */
+    private void atualizarTorres( double delta ) {
+        
+        for ( Torre torre : torresPosicionadas ) {
+            
+            if ( torre instanceof BancoDeDinheiro ) {
+                
+                BancoDeDinheiro banco = (BancoDeDinheiro) torre;
+                banco.atualizarCooldownGeracao( delta );
+                if ( banco.prontoParaGerar() ) {
+                    dinheiro += banco.getDinheiroGerado();
+                    banco.registrarGeracao();
+                }
+                continue;
+                
+            }
+            
+            torre.atualizarCooldown( delta );
+            if ( torre.podeAtacar() ) {
+                Manequim alvo = encontrarAlvoMaisProximo( torre );
+                if ( alvo != null ) {
+                    alvo.receberDano( torre.getDano() );
+                    torre.registrarAtaque();
+                }
+            }
+            
+        }
+        
+    }
+    
+    /** O manequim vivo mais próximo desta torre que ainda está dentro do alcance dela. */
+    private Manequim encontrarAlvoMaisProximo( Torre torre ) {
+        
+        Manequim maisProximo = null;
+        double menorDistancia = Double.MAX_VALUE;
+        
+        for ( Manequim m : manequins ) {
+            
+            if ( m.estaMorto() ) {
+                continue;
+            }
+            
+            double dx = m.getColuna() - torre.getColuna();
+            double dy = m.getLinha() - torre.getLinha();
+            double distancia = Math.sqrt( dx * dx + dy * dy );
+            
+            if ( distancia <= torre.getAlcance() && distancia < menorDistancia ) {
+                menorDistancia = distancia;
+                maisProximo = m;
+            }
+            
+        }
+        
+        return maisProximo;
+        
+    }
+    
+    //==========================================================================
     // DESENHO
     //==========================================================================
     
@@ -219,11 +486,10 @@ public class JogoTorreDefesa extends EngineFrame {
                 desenharSelecaoMapa();
                 break;
             case JOGANDO:
-                desenharJogo();
-                desenharBotao( botaoPausar );
+                desenharCenaDoJogo( true );
                 break;
             case PAUSADO:
-                desenharJogo();
+                desenharCenaDoJogo( false );
                 desenharPausa();
                 break;
         }
@@ -313,6 +579,32 @@ public class JogoTorreDefesa extends EngineFrame {
         
     }
     
+    /**
+     * Tudo da tela de jogo, nesta ordem: malha, preview do alcance (só se
+     * interativo -- na tela de pausa não tem sentido), manequins, torres
+     * colocadas, painel de compra e o HUD de dinheiro. O botão de pausa
+     * só aparece quando interativo; na pausa quem desenha por cima é
+     * desenharPausa(), chamado depois deste método.
+     */
+    private void desenharCenaDoJogo( boolean interativo ) {
+        
+        desenharJogo();
+        
+        if ( interativo ) {
+            desenharPreviewDeAlcance();
+        }
+        
+        desenharManequins();
+        desenharTorres();
+        desenharPainelDeTorres();
+        desenharHud();
+        
+        if ( interativo ) {
+            desenharBotao( botaoPausar );
+        }
+        
+    }
+    
     private void desenharJogo() {
         
         clearBackground( COR_FUNDO_JOGO );
@@ -325,6 +617,144 @@ public class JogoTorreDefesa extends EngineFrame {
             }
         }
         
+    }
+    
+    /** Círculo translúcido mostrando o alcance da torre selecionada, na célula sob o mouse. */
+    private void desenharPreviewDeAlcance() {
+        
+        if ( tipoDeTorreSelecionada == null ) {
+            return;
+        }
+        
+        int mx = getMouseX();
+        int my = getMouseY();
+        
+        if ( my >= ALTURA_JANELA - ALTURA_PAINEL ) {
+            return;
+        }
+        
+        int tile = mapa.getTamanhoTile();
+        int coluna = mx / tile;
+        int linha = my / tile;
+        
+        double cx = coluna * tile + tile / 2.0;
+        double cy = linha * tile + tile / 2.0;
+        double raio = tipoDeTorreSelecionada.getAlcance() * tile;
+        
+        fillCircle( cx, cy, raio, COR_PREVIEW_ALCANCE );
+        
+    }
+    
+    /** As torres coloridas por tipo, com o nível empilhado escrito no meio se for > 0. */
+    private void desenharTorres() {
+        
+        int tile = mapa.getTamanhoTile();
+        
+        for ( Torre t : torresPosicionadas ) {
+            
+            double x = t.getColuna() * tile;
+            double y = t.getLinha() * tile;
+            
+            fillRectangle( x + 4, y + 4, tile - 8, tile - 8, corDaTorre( t ) );
+            setStrokeLineWidth( 2 );
+            drawRectangle( x + 4, y + 4, tile - 8, tile - 8, COR_BORDA_TORRE );
+            setStrokeLineWidth( 1 );
+            
+            if ( t.getNivel() > 0 ) {
+                textoCentro( "" + t.getNivel(), x + tile / 2.0, y + tile / 2.0, 14, COR_TEXTO_MENU );
+            }
+            
+        }
+        
+    }
+    
+    /** Cor de cada tipo de torre -- placeholder até ter arte de verdade. */
+    private Color corDaTorre( Torre t ) {
+        
+        if ( t instanceof BancoDeDinheiro ) {
+            return COR_TORRE_BANCO;
+        } else if ( t instanceof TacadorDeBolinha ) {
+            return COR_TORRE_TACADOR;
+        } else if ( t instanceof Boxeador ) {
+            return COR_TORRE_BOXEADOR;
+        }
+        
+        return COR_TORRE_GENERICA;
+        
+    }
+    
+    /** Os manequins de teste, como bolinhas coloridas com a vida escrita em cima. */
+    private void desenharManequins() {
+        
+        int tile = mapa.getTamanhoTile();
+        
+        for ( int i = 0; i < manequins.size(); i++ ) {
+            
+            Manequim m = manequins.get( i );
+            if ( m.estaMorto() ) {
+                continue;
+            }
+            
+            double cx = m.getColuna() * tile + tile / 2.0;
+            double cy = m.getLinha() * tile + tile / 2.0;
+            double raio = tile * 0.35;
+            
+            fillCircle( cx, cy, raio + 2, COR_BORDA_MANEQUIM );
+            fillCircle( cx, cy, raio, CORES_MANEQUINS[ i % CORES_MANEQUINS.length ] );
+            
+            textoCentro( m.getVidaAtual() + "/" + m.getVidaMaxima(), cx, cy - raio - 12, 11, COR_TEXTO_MENU );
+            
+        }
+        
+    }
+    
+    /**
+     * Painel de baixo, estilo Bloons: um botão por torre disponível,
+     * mostrando nome e custo, destacando a selecionada e apagando as que
+     * o jogador não tem dinheiro pra comprar.
+     */
+    private void desenharPainelDeTorres() {
+        
+        fillRectangle( 0, ALTURA_JANELA - ALTURA_PAINEL, LARGURA_JANELA, ALTURA_PAINEL, COR_PAINEL_FUNDO );
+        
+        setStrokeLineWidth( 2 );
+        drawLine( 0, ALTURA_JANELA - ALTURA_PAINEL, LARGURA_JANELA, ALTURA_JANELA - ALTURA_PAINEL, COR_BOTAO_BORDA );
+        setStrokeLineWidth( 1 );
+        
+        List<Torre> disponiveis = Torres.disponiveis();
+        for ( int i = 0; i < botoesTorres.size(); i++ ) {
+            desenharBotaoDeTorre( botoesTorres.get( i ), disponiveis.get( i ) );
+        }
+        
+    }
+    
+    private void desenharBotaoDeTorre( Botao b, Torre prototipo ) {
+        
+        boolean selecionada = tipoDeTorreSelecionada == prototipo;
+        boolean temDinheiro = dinheiro >= prototipo.getCustoBase();
+        
+        Color fundo;
+        if ( selecionada ) {
+            fundo = COR_BOTAO_SELECIONADO;
+        } else if ( !temDinheiro ) {
+            fundo = COR_BOTAO_DESABILITADO;
+        } else {
+            fundo = b.mouseSobre ? COR_BOTAO_HOVER : COR_BOTAO;
+        }
+        
+        fillRectangle( b.x, b.y, b.largura, b.altura, fundo );
+        
+        setStrokeLineWidth( selecionada ? 3 : 2 );
+        drawRectangle( b.x + 1, b.y + 1, b.largura - 2, b.altura - 2, corDaTorre( prototipo ) );
+        setStrokeLineWidth( 1 );
+        
+        textoCentro( prototipo.getNome(), b.x + b.largura / 2, b.y + 17, 12, COR_TEXTO_MENU );
+        textoCentro( "$" + prototipo.getCustoBase(), b.x + b.largura / 2, b.y + 38, 13, COR_TEXTO_MENU );
+        
+    }
+    
+    private void desenharHud() {
+        texto( "Dinheiro: $" + dinheiro, 16, 16, 18, COR_TEXTO_MENU );
     }
     
     private void desenharCelula( int coluna, int linha, int tile ) {
@@ -398,6 +828,12 @@ public class JogoTorreDefesa extends EngineFrame {
     private double larguraTexto( String s, int tamanho ) {
         setFontName( fonte );
         return measureText( s, tamanho );
+    }
+    
+    /** Texto simples, ancorado no canto superior esquerdo em (x, y). */
+    private void texto( String s, double x, double y, int tamanho, Color cor ) {
+        setFontName( fonte );
+        drawText( s, Math.round( x ), Math.round( y ), tamanho, cor );
     }
     
     /** Texto centralizado horizontal e verticalmente em (cx, cy). */
