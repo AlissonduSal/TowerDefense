@@ -3,6 +3,7 @@ package projetoesdlinear;
 import br.com.davidbuzatto.jsge.core.engine.EngineFrame;
 import java.awt.Color;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -75,7 +76,8 @@ public class JogoTorreDefesa extends EngineFrame {
     
     // manequins: uma bolinha colorida por manequim, só pra diferenciar
     private static final Color[] CORES_MANEQUINS = {
-        new Color( 220, 70, 70 ), new Color( 70, 120, 220 ), new Color( 230, 200, 60 )
+        new Color( 220, 70, 70 ), new Color( 70, 120, 220 ), new Color( 230, 200, 60 ),
+        new Color( 160, 90, 200 ), new Color( 230, 140, 60 ), new Color( 70, 200, 190 )
     };
     private static final Color COR_BORDA_MANEQUIM = new Color( 20, 20, 20 );
     
@@ -84,6 +86,10 @@ public class JogoTorreDefesa extends EngineFrame {
     private static final Color COR_BOTAO_SELECIONADO = new Color( 88, 166, 63 );
     private static final Color COR_BOTAO_DESABILITADO = new Color( 40, 40, 40 );
     private static final Color COR_PREVIEW_ALCANCE = new Color( 255, 255, 255, 60 );
+    
+    // efeitos visuais de ataque
+    private static final Color COR_EFEITO_STUN = new Color( 240, 210, 60 );
+    private static final Color COR_EFEITO_NOCAUTE = new Color( 230, 60, 40 );
     
     //==========================================================================
     // ATRIBUTOS
@@ -113,8 +119,10 @@ public class JogoTorreDefesa extends EngineFrame {
     private int dinheiro;
     private List<Torre> torresPosicionadas;
     private Torre tipoDeTorreSelecionada;
+    private Torre torreEmMao; // torre desempilhada, esperando ser posicionada de novo
     private List<Botao> botoesTorres;
     private List<Manequim> manequins;
+    private List<EfeitoVisual> efeitos;
     
     public JogoTorreDefesa() {
         
@@ -203,32 +211,45 @@ public class JogoTorreDefesa extends EngineFrame {
         dinheiro = DINHEIRO_INICIAL;
         torresPosicionadas = new ArrayList<>();
         tipoDeTorreSelecionada = null;
+        torreEmMao = null;
+        efeitos = new ArrayList<>();
         
         posicionarManequins();
         
     }
     
     /**
-     * Espalha os três manequins de teste pela malha, cada um perto de uma
-     * fração diferente da largura do mapa (20%, 50%, 80%), procurando a
-     * célula de grama livre mais próxima daquele ponto.
+     * Espalha os manequins de teste pela malha: três bem separados (20%,
+     * 50% e 80% da largura), pra testar alcance normal, e mais três
+     * próximos um do outro perto do centro, pra testar o ricochete do
+     * Tacador de bolinha (que pula entre inimigos próximos).
      */
     private void posicionarManequins() {
         
         manequins = new ArrayList<>();
-        double[] fracoesDeColuna = { 0.2, 0.5, 0.8 };
         
+        double[] fracoesDeColuna = { 0.2, 0.5, 0.8 };
         for ( int i = 0; i < fracoesDeColuna.length; i++ ) {
-            
             int colunaAlvo = (int) ( mapa.getColunas() * fracoesDeColuna[i] );
             int linhaAlvo = mapa.getLinhas() / 2;
-            int[] posicao = encontrarCelulaDeGramaMaisProxima( colunaAlvo, linhaAlvo );
-            
-            Manequim m = new Manequim( "Manequim " + ( i + 1 ) );
-            m.posicionarEm( posicao[0], posicao[1] );
-            manequins.add( m );
-            
+            adicionarManequim( "Manequim " + ( i + 1 ), colunaAlvo, linhaAlvo );
         }
+        
+        int colunaBase = mapa.getColunas() / 2;
+        int linhaBase = mapa.getLinhas() / 2 - 3;
+        adicionarManequim( "Ricochete 1", colunaBase, linhaBase );
+        adicionarManequim( "Ricochete 2", colunaBase + 1, linhaBase );
+        adicionarManequim( "Ricochete 3", colunaBase, linhaBase + 1 );
+        
+    }
+    
+    private void adicionarManequim( String nome, int colunaAlvo, int linhaAlvo ) {
+        
+        int[] posicao = encontrarCelulaDeGramaMaisProxima( colunaAlvo, linhaAlvo );
+        
+        Manequim m = new Manequim( nome );
+        m.posicionarEm( posicao[0], posicao[1] );
+        manequins.add( m );
         
     }
     
@@ -267,6 +288,7 @@ public class JogoTorreDefesa extends EngineFrame {
         int mx = getMouseX();
         int my = getMouseY();
         boolean clicou = isMouseButtonPressed( MOUSE_BUTTON_LEFT );
+        boolean clicouDireito = isMouseButtonPressed( MOUSE_BUTTON_RIGHT );
         boolean mouseSobreAlgumBotao = false;
         
         switch ( estado ) {
@@ -315,9 +337,20 @@ public class JogoTorreDefesa extends EngineFrame {
                     }
                 }
                 
-                // clique no mapa (fora do painel de baixo) com uma torre selecionada
-                if ( clicou && tipoDeTorreSelecionada != null && my < ALTURA_JANELA - ALTURA_PAINEL ) {
-                    tentarColocarOuMelhorarTorre( mx, my );
+                boolean cliqueNoMapa = my < ALTURA_JANELA - ALTURA_PAINEL;
+                
+                // clique esquerdo no mapa: solta a torre em mão, ou compra/funde a selecionada
+                if ( clicou && cliqueNoMapa ) {
+                    if ( torreEmMao != null ) {
+                        tentarPosicionarTorreEmMao( mx, my );
+                    } else if ( tipoDeTorreSelecionada != null ) {
+                        tentarColocarOuMelhorarTorre( mx, my );
+                    }
+                }
+                
+                // clique direito numa torre colocada: desempilha a última melhoria
+                if ( clicouDireito && cliqueNoMapa ) {
+                    tentarDesempilharMelhoria( mx, my );
                 }
                 
                 atualizarTorres( delta );
@@ -369,7 +402,7 @@ public class JogoTorreDefesa extends EngineFrame {
             return;
         }
         
-        int custo = tipoDeTorreSelecionada.getCustoBase();
+        int custo = custoComDesconto( tipoDeTorreSelecionada );
         if ( dinheiro < custo ) {
             return;
         }
@@ -410,38 +443,257 @@ public class JogoTorreDefesa extends EngineFrame {
     }
     
     /**
+     * Clique direito numa torre colocada: desempilha a última melhoria
+     * dela (Torre.removerUltimaMelhoria()) e, se tinha mesmo uma melhoria
+     * pra tirar, a torre que volta fica "em mão" -- o próximo clique
+     * esquerdo numa célula livre a posiciona de novo, sem custo (ela já
+     * tinha sido paga).
+     */
+    private void tentarDesempilharMelhoria( int mx, int my ) {
+        
+        int tile = mapa.getTamanhoTile();
+        int coluna = mx / tile;
+        int linha = my / tile;
+        
+        Torre torre = encontrarTorreEm( coluna, linha );
+        if ( torre == null ) {
+            return;
+        }
+        
+        Torre desempilhada = torre.removerUltimaMelhoria();
+        if ( desempilhada != null ) {
+            torreEmMao = desempilhada;
+            tipoDeTorreSelecionada = null;
+        }
+        
+    }
+    
+    /** Solta a torre em mão (vinda de um desempilhar) numa célula de grama livre. */
+    private void tentarPosicionarTorreEmMao( int mx, int my ) {
+        
+        int tile = mapa.getTamanhoTile();
+        int coluna = mx / tile;
+        int linha = my / tile;
+        
+        if ( coluna < 0 || coluna >= mapa.getColunas() || linha < 0 || linha >= mapa.getLinhas() ) {
+            return;
+        }
+        
+        if ( grade[linha][coluna] == TipoCelula.CAMINHO || encontrarTorreEm( coluna, linha ) != null ) {
+            return;
+        }
+        
+        torreEmMao.posicionarEm( coluna, linha );
+        torresPosicionadas.add( torreEmMao );
+        torreEmMao = null;
+        
+    }
+    
+    /** Se algum Banco de dinheiro no mapa já estiver no nível 5, todas as torres saem com 50% de desconto. */
+    private boolean descontoDeCompraAtivo() {
+        
+        for ( Torre t : torresPosicionadas ) {
+            if ( t instanceof BancoDeDinheiro && ( (BancoDeDinheiro) t ).temDescontoAtivo() ) {
+                return true;
+            }
+        }
+        
+        return false;
+        
+    }
+    
+    private int custoComDesconto( Torre prototipo ) {
+        
+        int custo = prototipo.getCustoBase();
+        if ( descontoDeCompraAtivo() ) {
+            custo = (int) Math.round( custo * BancoDeDinheiro.FRACAO_DESCONTO_NIVEL_5 );
+        }
+        return custo;
+        
+    }
+    
+    // alcance (em quadrados) de cada "pulo" do ricochete do Tacador de bolinha,
+    // a partir do segundo alvo -- não tem no PDF, é um valor pra ajustar depois
+    private static final double ALCANCE_RICOCHETE = 2.5;
+    
+    /**
      * A cada frame: o Banco de dinheiro avança seu próprio cooldown e
      * gera dinheiro quando pronto; as demais torres avançam o cooldown de
-     * ataque e, quando prontas, atacam o manequim vivo mais próximo que
-     * estiver dentro do alcance.
+     * ataque e, quando prontas, atacam -- cada tipo com seu próprio jeito
+     * de atacar (ver os métodos processarAtaqueX). No fim, avança os
+     * efeitos visuais (projéteis, soco, stun, nocaute, dinheiro).
      */
     private void atualizarTorres( double delta ) {
         
         for ( Torre torre : torresPosicionadas ) {
             
             if ( torre instanceof BancoDeDinheiro ) {
-                
-                BancoDeDinheiro banco = (BancoDeDinheiro) torre;
-                banco.atualizarCooldownGeracao( delta );
-                if ( banco.prontoParaGerar() ) {
-                    dinheiro += banco.getDinheiroGerado();
-                    banco.registrarGeracao();
-                }
+                atualizarBanco( (BancoDeDinheiro) torre, delta );
                 continue;
-                
             }
             
             torre.atualizarCooldown( delta );
-            if ( torre.podeAtacar() ) {
-                Manequim alvo = encontrarAlvoMaisProximo( torre );
-                if ( alvo != null ) {
-                    alvo.receberDano( torre.getDano() );
-                    torre.registrarAtaque();
-                }
+            if ( !torre.podeAtacar() ) {
+                continue;
+            }
+            
+            if ( torre instanceof TacadorDeBolinha ) {
+                processarAtaqueTacador( (TacadorDeBolinha) torre );
+            } else if ( torre instanceof Boxeador ) {
+                processarAtaqueBoxeador( (Boxeador) torre );
             }
             
         }
         
+        atualizarEfeitos( delta );
+        
+    }
+    
+    private void atualizarBanco( BancoDeDinheiro banco, double delta ) {
+        
+        banco.atualizarCooldownGeracao( delta );
+        if ( !banco.prontoParaGerar() ) {
+            return;
+        }
+        
+        int gerado = banco.getDinheiroGerado();
+        dinheiro += gerado;
+        banco.registrarGeracao();
+        
+        double[] centro = centroDaCelula( banco.getColuna(), banco.getLinha() );
+        EfeitoVisual efeito = new EfeitoVisual(
+                EfeitoVisual.Tipo.DINHEIRO_GERADO, centro[0], centro[1], centro[0], centro[1], 1 );
+        efeito.texto = "+" + gerado;
+        efeitos.add( efeito );
+        
+    }
+    
+    /**
+     * Ataque do Tacador de bolinha: acerta o alvo mais próximo dentro do
+     * alcance normal da torre e, se o nível já destravou ricochete, pula
+     * pros inimigos vivos mais próximos (dentro de ALCANCE_RICOCHETE do
+     * último atingido) até atingir o limite de ricochetes (ou acabarem os
+     * alvos). Cada acerto gera uma bolinha voando até o alvo.
+     */
+    private void processarAtaqueTacador( TacadorDeBolinha tacador ) {
+        
+        Manequim alvoAtual = encontrarAlvoMaisProximo( tacador );
+        if ( alvoAtual == null ) {
+            return;
+        }
+        
+        int maxRicochetes = tacador.getQuantidadeDeRicochete();
+        List<Manequim> atingidos = new ArrayList<>();
+        double[] origem = centroDaCelula( tacador.getColuna(), tacador.getLinha() );
+        
+        while ( alvoAtual != null ) {
+            
+            alvoAtual.receberDano( tacador.getDano() );
+            atingidos.add( alvoAtual );
+            
+            double[] destino = centroDaCelula( alvoAtual.getColuna(), alvoAtual.getLinha() );
+            efeitos.add( new EfeitoVisual(
+                    EfeitoVisual.Tipo.PROJETIL_BOLINHA, origem[0], origem[1], destino[0], destino[1], 0.15 ) );
+            
+            if ( maxRicochetes != TacadorDeBolinha.RICOCHETE_ILIMITADO && atingidos.size() >= maxRicochetes ) {
+                break;
+            }
+            
+            origem = destino;
+            alvoAtual = encontrarProximoAlvoDeRicochete( alvoAtual, atingidos );
+            
+        }
+        
+        tacador.registrarAtaque();
+        
+    }
+    
+    /** O manequim vivo mais próximo do último atingido, dentro de ALCANCE_RICOCHETE, que ainda não foi atingido. */
+    private Manequim encontrarProximoAlvoDeRicochete( Manequim ultimoAtingido, List<Manequim> jaAtingidos ) {
+        
+        Manequim maisProximo = null;
+        double menorDistancia = Double.MAX_VALUE;
+        
+        for ( Manequim m : manequins ) {
+            
+            if ( m.estaMorto() || jaAtingidos.contains( m ) ) {
+                continue;
+            }
+            
+            double dx = m.getColuna() - ultimoAtingido.getColuna();
+            double dy = m.getLinha() - ultimoAtingido.getLinha();
+            double distancia = Math.sqrt( dx * dx + dy * dy );
+            
+            if ( distancia <= ALCANCE_RICOCHETE && distancia < menorDistancia ) {
+                menorDistancia = distancia;
+                maisProximo = m;
+            }
+            
+        }
+        
+        return maisProximo;
+        
+    }
+    
+    /**
+     * Ataque do Boxeador: sorteia primeiro o nocaute (se destravado), e só
+     * se não nocautear sorteia o stun (se destravado) -- um manequim morto
+     * não precisa de stun. Sempre gera o efeito de impacto; nocaute e
+     * stun geram um efeito extra em cima disso.
+     */
+    private void processarAtaqueBoxeador( Boxeador boxeador ) {
+        
+        Manequim alvo = encontrarAlvoMaisProximo( boxeador );
+        if ( alvo == null ) {
+            return;
+        }
+        
+        double[] origem = centroDaCelula( boxeador.getColuna(), boxeador.getLinha() );
+        double[] destino = centroDaCelula( alvo.getColuna(), alvo.getLinha() );
+        
+        efeitos.add( new EfeitoVisual(
+                EfeitoVisual.Tipo.IMPACTO_SOCO, origem[0], origem[1], destino[0], destino[1], 0.15 ) );
+        
+        boolean foiNocaute = Math.random() < boxeador.getChanceDeNocaute();
+        
+        if ( foiNocaute ) {
+            
+            alvo.receberDano( alvo.getVidaAtual() );
+            efeitos.add( new EfeitoVisual(
+                    EfeitoVisual.Tipo.NOCAUTE, destino[0], destino[1], destino[0], destino[1], 0.6 ) );
+            
+        } else {
+            
+            alvo.receberDano( boxeador.getDano() );
+            
+            if ( Math.random() < boxeador.getChanceDeStun() ) {
+                efeitos.add( new EfeitoVisual( EfeitoVisual.Tipo.STUN, destino[0], destino[1],
+                        destino[0], destino[1], boxeador.getDuracaoStunSegundos() ) );
+            }
+            
+        }
+        
+        boxeador.registrarAtaque();
+        
+    }
+    
+    private void atualizarEfeitos( double delta ) {
+        
+        Iterator<EfeitoVisual> it = efeitos.iterator();
+        while ( it.hasNext() ) {
+            EfeitoVisual e = it.next();
+            e.atualizar( delta );
+            if ( e.terminou() ) {
+                it.remove();
+            }
+        }
+        
+    }
+    
+    /** Centro, em pixels, de uma célula da malha. */
+    private double[] centroDaCelula( int coluna, int linha ) {
+        int tile = mapa.getTamanhoTile();
+        return new double[]{ coluna * tile + tile / 2.0, linha * tile + tile / 2.0 };
     }
     
     /** O manequim vivo mais próximo desta torre que ainda está dentro do alcance dela. */
@@ -596,6 +848,7 @@ public class JogoTorreDefesa extends EngineFrame {
         
         desenharManequins();
         desenharTorres();
+        desenharEfeitos();
         desenharPainelDeTorres();
         desenharHud();
         
@@ -619,10 +872,11 @@ public class JogoTorreDefesa extends EngineFrame {
         
     }
     
-    /** Círculo translúcido mostrando o alcance da torre selecionada, na célula sob o mouse. */
+    /** Círculo translúcido mostrando o alcance da torre selecionada (ou em mão), na célula sob o mouse. */
     private void desenharPreviewDeAlcance() {
         
-        if ( tipoDeTorreSelecionada == null ) {
+        Torre referencia = torreEmMao != null ? torreEmMao : tipoDeTorreSelecionada;
+        if ( referencia == null ) {
             return;
         }
         
@@ -639,7 +893,7 @@ public class JogoTorreDefesa extends EngineFrame {
         
         double cx = coluna * tile + tile / 2.0;
         double cy = linha * tile + tile / 2.0;
-        double raio = tipoDeTorreSelecionada.getAlcance() * tile;
+        double raio = referencia.getAlcance() * tile;
         
         fillCircle( cx, cy, raio, COR_PREVIEW_ALCANCE );
         
@@ -730,8 +984,9 @@ public class JogoTorreDefesa extends EngineFrame {
     
     private void desenharBotaoDeTorre( Botao b, Torre prototipo ) {
         
+        int custo = custoComDesconto( prototipo );
         boolean selecionada = tipoDeTorreSelecionada == prototipo;
-        boolean temDinheiro = dinheiro >= prototipo.getCustoBase();
+        boolean temDinheiro = dinheiro >= custo;
         
         Color fundo;
         if ( selecionada ) {
@@ -749,12 +1004,91 @@ public class JogoTorreDefesa extends EngineFrame {
         setStrokeLineWidth( 1 );
         
         textoCentro( prototipo.getNome(), b.x + b.largura / 2, b.y + 17, 12, COR_TEXTO_MENU );
-        textoCentro( "$" + prototipo.getCustoBase(), b.x + b.largura / 2, b.y + 38, 13, COR_TEXTO_MENU );
+        textoCentro( "$" + custo, b.x + b.largura / 2, b.y + 38, 13, COR_TEXTO_MENU );
         
     }
     
     private void desenharHud() {
+        
         texto( "Dinheiro: $" + dinheiro, 16, 16, 18, COR_TEXTO_MENU );
+        
+        if ( torreEmMao != null ) {
+            texto( "Segurando " + torreEmMao.getNome() + " (nível " + torreEmMao.getNivel()
+                    + ") -- clique numa célula de grama livre", 16, 42, 13, COR_TEXTO_MENU );
+        }
+        
+    }
+    
+    /** Despacha cada efeito ativo pro método de desenho do tipo dele. */
+    private void desenharEfeitos() {
+        
+        for ( EfeitoVisual e : efeitos ) {
+            switch ( e.tipo ) {
+                case PROJETIL_BOLINHA:
+                    desenharProjetilBolinha( e );
+                    break;
+                case IMPACTO_SOCO:
+                    desenharImpactoSoco( e );
+                    break;
+                case STUN:
+                    desenharStun( e );
+                    break;
+                case NOCAUTE:
+                    desenharNocaute( e );
+                    break;
+                case DINHEIRO_GERADO:
+                    desenharDinheiroGerado( e );
+                    break;
+            }
+        }
+        
+    }
+    
+    private void desenharProjetilBolinha( EfeitoVisual e ) {
+        
+        double p = e.getProgresso();
+        double x = e.origemX + ( e.destinoX - e.origemX ) * p;
+        double y = e.origemY + ( e.destinoY - e.origemY ) * p;
+        
+        fillCircle( x, y, 6, COR_TORRE_TACADOR );
+        
+    }
+    
+    private void desenharImpactoSoco( EfeitoVisual e ) {
+        
+        double p = e.getProgresso();
+        double raio = 8 + p * 16; // cresce e, como o efeito é curto, some rápido
+        
+        fillCircle( e.destinoX, e.destinoY, raio, COR_TORRE_BOXEADOR );
+        
+    }
+    
+    /** Três estrelinhas (bolinhas amarelas) girando em volta da cabeça do alvo. */
+    private void desenharStun( EfeitoVisual e ) {
+        
+        double anguloBase = e.getProgresso() * Math.PI * 8;
+        int quantidade = 3;
+        
+        for ( int i = 0; i < quantidade; i++ ) {
+            double angulo = anguloBase + i * ( 2 * Math.PI / quantidade );
+            double ex = e.destinoX + Math.cos( angulo ) * 16;
+            double ey = e.destinoY - 26 + Math.sin( angulo ) * 5;
+            fillCircle( ex, ey, 3, COR_EFEITO_STUN );
+        }
+        
+    }
+    
+    private void desenharNocaute( EfeitoVisual e ) {
+        textoCentro( "K.O.!", e.destinoX, e.destinoY - 22, 20, COR_EFEITO_NOCAUTE );
+    }
+    
+    private void desenharDinheiroGerado( EfeitoVisual e ) {
+        
+        double p = e.getProgresso();
+        double y = e.destinoY - 10 - p * 24; // sobe e some
+        
+        textoCentro( e.texto, e.destinoX, y, 14, COR_TORRE_BANCO );
+        
     }
     
     private void desenharCelula( int coluna, int linha, int tile ) {

@@ -24,7 +24,7 @@ package projetoesdlinear;
  */
 public class Boxeador extends Torre {
     
-    private static final double CHANCE_DE_STUN = 0.15;
+    private static final double CHANCE_DE_STUN = 0.20;
     private static final double CHANCE_DE_NOCAUTE = 0.05;
     private static final double DURACAO_STUN_SEGUNDOS = 2;
     

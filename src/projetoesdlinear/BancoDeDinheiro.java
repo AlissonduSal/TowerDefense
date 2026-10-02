@@ -8,18 +8,18 @@ package projetoesdlinear;
  * alguns segundos. Ocupa 2 células só pra ficar visualmente diferente das
  * outras torres (1 célula).
  * 
- * Tabela de melhorias (ver o PDF):
+ * Tabela de melhorias (balanceada, diferente do PDF original):
  *     nível 1: -1 segundo pra gerar dinheiro
  *     nível 2: -1 segundo pra gerar dinheiro
- *     nível 3: destrava o empréstimo
+ *     nível 3: +5 no dinheiro gerado a cada ciclo
  *     nível 4: -2 segundos pra gerar dinheiro
- *     nível 5: destrava um desconto de 50% numa próxima compra de torre
- *              (só pode ser usado uma vez)
+ *     nível 5: desconto de 50% em QUALQUER compra de torre, o jogo
+ *              inteiro, enquanto o banco estiver neste nível (não é mais
+ *              um uso único) -- ver temDescontoAtivo()
  * 
- * O empréstimo e a aplicação do desconto na compra de outra torre ainda
- * não têm a mecânica de jogo ligada (dependem do sistema de economia do
- * jogador, que ainda não existe) -- aqui só ficam os métodos que dizem se
- * já estão destravados.
+ * O desconto do nível 5 é só a informação "está ativo ou não"; quem lê
+ * isso e realmente abate o preço na hora de comprar é o JogoTorreDefesa
+ * (ele soma temDescontoAtivo() de todos os bancos no mapa).
  * 
  * @author Prof. Dr. David Buzatto
  */
@@ -27,12 +27,11 @@ public class BancoDeDinheiro extends Torre {
     
     private static final int DINHEIRO_GERADO_BASE = 5;
     private static final double TEMPO_GERACAO_BASE = 5;
-    private static final double DESCONTO_NIVEL_5 = 0.5;
+    private static final int BONUS_DINHEIRO_NIVEL_3 = 5;
+    public static final double FRACAO_DESCONTO_NIVEL_5 = 0.5;
     
     // quanto o tempo de geração diminui em cada nível, em ordem (índice 0 = nível 1)
     private static final double[] REDUCAO_DE_TEMPO_POR_NIVEL = { 1, 1, 0, 2, 0 };
-    
-    private boolean descontoJaUsado;
     
     // tempo (segundos) até o banco gerar dinheiro de novo
     private double cooldownGeracao = TEMPO_GERACAO_BASE;
@@ -57,9 +56,15 @@ public class BancoDeDinheiro extends Torre {
         cooldownGeracao = getTempoGeracao();
     }
     
-    /** Quanto dinheiro o banco gera a cada ciclo (não muda com o nível, só o tempo muda). */
+    /** Quanto dinheiro o banco gera a cada ciclo: base + 5 a partir do nível 3. */
     public int getDinheiroGerado() {
-        return DINHEIRO_GERADO_BASE;
+        
+        int total = DINHEIRO_GERADO_BASE;
+        if ( getNivel() >= 3 ) {
+            total += BONUS_DINHEIRO_NIVEL_3;
+        }
+        return total;
+        
     }
     
     /** De quanto em quanto tempo (segundos) o banco gera dinheiro, já considerando o nível. */
@@ -73,29 +78,9 @@ public class BancoDeDinheiro extends Torre {
         
     }
     
-    /** A partir do nível 3, o banco destrava a possibilidade de pegar empréstimo. */
-    public boolean temEmprestimoDisponivel() {
-        return getNivel() >= 3;
-    }
-    
-    /** Se ainda existe o desconto de 50% do nível 5 disponível pra usar (só uma vez). */
-    public boolean temDescontoDisponivel() {
-        return getNivel() >= 5 && !descontoJaUsado;
-    }
-    
-    /**
-     * Consome o desconto do nível 5 e devolve a fração de desconto (0.5 =
-     * 50%). Se não tiver desconto disponível, devolve 0 e não consome nada.
-     */
-    public double usarDesconto() {
-        
-        if ( !temDescontoDisponivel() ) {
-            return 0;
-        }
-        
-        descontoJaUsado = true;
-        return DESCONTO_NIVEL_5;
-        
+    /** A partir do nível 5, este banco dá 50% de desconto em qualquer torre comprada. */
+    public boolean temDescontoAtivo() {
+        return getNivel() >= 5;
     }
     
 }
