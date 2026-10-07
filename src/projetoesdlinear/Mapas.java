@@ -1,24 +1,26 @@
 package projetoesdlinear;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 /**
  * Repositório dos mapas disponíveis para seleção.
  * 
- * Para adicionar um mapa novo: criar um método "criarMapaX()" como o de
- * baixo, retornando um MapaConfig com um id único, e incluir a chamada na
- * lista DISPONIVEIS. Nenhuma outra parte do jogo muda -- a tela de seleção
- * de mapas e o motor do jogo trabalham em cima de MapaConfig, não sabem o
- * que tem dentro de cada um.
+ * Agora os mapas são desenhados diretamente em uma matriz visual de strings!
+ * Elementos definidos:
+ * - A: Grama padrão
+ * - A1, A2...: Variações de grama
+ * - AC, BC...: Células de caminho (qualquer código terminado em 'C')
+ * - AE, BE...: Entrada do caminho (qualquer código terminado em 'E')
+ * - AS, BS...: Saída do caminho (qualquer código terminado em 'S')
+ * 
+ * Nenhuma coordenada manual (ex: waypoints.add) é mais necessária. O percurso
+ * é detectado e os waypoints são gerados automaticamente.
  * 
  * @author Prof. Dr. David Buzatto
  */
 public class Mapas {
     
-    private static final int COLUNAS_PADRAO = 20;
-    private static final int LINHAS_PADRAO = 15;
     private static final int TILE_PADRAO = 40;
     
     private static final List<MapaConfig> DISPONIVEIS = Arrays.asList(
@@ -30,21 +32,30 @@ public class Mapas {
      * Mapa 1: caminho em "onda quadrada" (zigue-zague), baseado na imagem
      * de referência -- entra pela esquerda embaixo e sai pela direita em cima,
      * com dois "morros" e um "vale" no meio.
+     * 
+     * Dimensões: 20 colunas x 15 linhas.
      */
     private static MapaConfig criarMapaZigueZague() {
         
-        List<Coordenada> waypoints = new ArrayList<>();
-        waypoints.add( new Coordenada( 0, 11 ) );
-        waypoints.add( new Coordenada( 4, 11 ) );
-        waypoints.add( new Coordenada( 4, 3 ) );
-        waypoints.add( new Coordenada( 9, 3 ) );
-        waypoints.add( new Coordenada( 9, 11 ) );
-        waypoints.add( new Coordenada( 14, 11 ) );
-        waypoints.add( new Coordenada( 14, 3 ) );
-        waypoints.add( new Coordenada( 19, 3 ) );
+        String[] layout = {
+            /* 00 */ "A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A",
+            /* 01 */ "A   A1  A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A1  A   A",
+            /* 02 */ "A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A",
+            /* 03 */ "A   A   A   A   AC  AC  AC  AC  AC  AC  A   A   A   A   AC  AC  AC  AC  AC  AS",
+            /* 04 */ "A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   A",
+            /* 05 */ "A   A   A   A   AC  A   A1  A   A   AC  A   A   A1  A   AC  A   A   A   A   A",
+            /* 06 */ "A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   A",
+            /* 07 */ "A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   A",
+            /* 08 */ "A   A   A   A   AC  A   A   A1  A   AC  A   A   A   A   AC  A   A1  A   A   A",
+            /* 09 */ "A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   A",
+            /* 10 */ "A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   AC  A   A   A   A   A",
+            /* 11 */ "AE  AC  AC  AC  AC  A   A   A   A   AC  AC  AC  AC  AC  AC  A   A   A   A   A",
+            /* 12 */ "A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A",
+            /* 13 */ "A   A   A1  A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A1  A",
+            /* 14 */ "A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A"
+        };
         
-        return new MapaConfig( "ziguezague", "Zigue-zague",
-                COLUNAS_PADRAO, LINHAS_PADRAO, TILE_PADRAO, waypoints );
+        return new MapaConfig( "ziguezague", "Zigue-zague", TILE_PADRAO, layout );
         
     }
     
