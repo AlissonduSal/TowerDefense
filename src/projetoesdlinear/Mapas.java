@@ -36,35 +36,56 @@ public class Mapas {
     }
     
     private static final List<MapaConfig> DISPONIVEIS = Arrays.asList(
-        criarMapaZigueZague()
-        // próximos mapas entram aqui, um por linha
+        criarMapaZigueZague(),
+        criarMapaOculos()
     );
     
     /**
      * Mapa 1: caminho em "onda quadrada" (zigue-zague).
      */
     private static MapaConfig criarMapaZigueZague() {
-        
+
         String[] layout = {
-            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
-            "A  A1 A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A1 A  A",
-            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
-            "A  A  A  A  C  C  C  C  C  C  A  A  A  A  C  C  C  C  C  S",
-            "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
-            "A  A  A  A  C  A  A1 A  A  C  A  A  A1 A  C  A  A  A  A  A",
-            "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
-            "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
-            "A  A  A  A  C  A  A  A1 A  C  A  A  A  A  C  A  A1 A  A  A",
-            "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
-            "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
-            "E  C  C  C  C  A  A  A  A  C  C  C  C  C  C  A  A  A  A  A",
-            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
-            "A  A  A1 A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A1 A",
-            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A"
+                "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
+                "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
+                "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
+                "A  A  A  A  C  C  C  C  C  C  A  A  A  A  C  C  C  C  C  S",
+                "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
+                "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
+                "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
+                "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
+                "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
+                "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
+                "A  A  A  A  C  A  A  A  A  C  A  A  A  A  C  A  A  A  A  A",
+                "E  C  C  C  C  A  A  A  A  C  C  C  C  C  C  A  A  A  A  A",
+                "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
+                "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
+                "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A"
         };
         
         return new MapaConfig("ziguezague", "Zigue-zague", TILE_PADRAO, layout, LEGENDA);
         
+    }
+    
+    private static MapaConfig criarMapaOculos() {
+        String[] layout = {
+            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
+            "A  A  C  C  C  C  C  C  E  A  A  A  C  C  C  C  C  C  A  A",
+            "A  A  C  A  A  A  A  A  A  A  A  A  C  A  A  A  A  C  A  A",
+            "A  A  C  A  A  A  A  A  A  A  A  A  C  A  A  A  A  C  A  A",
+            "A  A  C  A  A  A  A  A  C  C  C  C  C  A  A  A  A  C  A  A",
+            "A  A  C  C  C  C  C  C  C  A  A  A  A  A  S  A  A  C  A  A",
+            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  C  A  A  C  A  A",
+            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  C  A  A  C  A  A",
+            "A  A  A  A  C  C  C  C  C  C  C  A  A  A  C  A  A  C  A  A",
+            "A  A  A  A  C  A  A  A  A  A  C  A  A  A  C  A  A  C  A  A",
+            "A  A  A  A  C  A  A  A  A  A  C  C  C  C  C  A  A  C  A  A",
+            "A  A  A  A  C  A  A  A  A  A  A  A  A  A  A  A  A  C  A  A",
+            "A  A  A  A  C  C  C  C  C  C  C  C  C  C  C  C  C  C  A  A",
+            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A",
+            "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A"
+        };
+        return new MapaConfig("oculos", "Óculos", TILE_PADRAO, layout, LEGENDA);
     }
     
     public static List<MapaConfig> disponiveis() {
