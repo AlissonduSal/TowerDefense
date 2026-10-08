@@ -11,6 +11,8 @@ import java.io.InputStreamReader;
 import aesd.ds.interfaces.Queue;
 import aesd.ds.implementations.linear.LinkedQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import aesd.ds.interfaces.Deque;
+import aesd.ds.implementations.linear.DoublyLinkedDeque;
 
 /**
  * Torre Defesa
@@ -137,7 +139,7 @@ public class JogoTorreDefesa extends EngineFrame {
     private List<EfeitoVisual> efeitos;
     
     private Queue<Inimigo> filaHorda;
-    private List<Inimigo> inimigosVivos;
+    private Deque<Inimigo> inimigosVivos;
     private List<Inimigo> invasoresHistorico;
     private double cooldownSpawnInimigo;
     
@@ -250,7 +252,7 @@ public class JogoTorreDefesa extends EngineFrame {
         efeitos = new ArrayList<>();
         
         filaHorda = new LinkedQueue<>();
-        inimigosVivos = new ArrayList<>();
+        inimigosVivos = new DoublyLinkedDeque<>();
         invasoresHistorico = new ArrayList<>();
         cooldownSpawnInimigo = 2.0;
         
@@ -311,7 +313,7 @@ public class JogoTorreDefesa extends EngineFrame {
         
         Manequim m = new Manequim( nome );
         m.posicionarEm( posicao[0], posicao[1] );
-        inimigosVivos.add( m );
+        inimigosVivos.addLast( m );
         
     }
     
@@ -384,23 +386,15 @@ public class JogoTorreDefesa extends EngineFrame {
                 
                 String msgSim;
                 while ((msgSim = mensagensDoSimulador.poll()) != null) {
-                    if (msgSim.startsWith("SimuladorLista:[Debug] Dispatching remove action for index: ")) {
-                        try {
-                            int idx = Integer.parseInt(msgSim.substring("SimuladorLista:[Debug] Dispatching remove action for index: ".length()));
-                            if (idx >= 0 && idx < inimigosVivos.size()) {
-                                Inimigo removido = inimigosVivos.remove(idx);
-                                dinheiro += removido.getVidaMaxima() / 10;
-                            }
-                        } catch (Exception e) {}
-                    } else if (msgSim.equals("SimuladorFila:[Debug] Dispatching dequeue action")) {
+                    if (msgSim.equals("Fila da Horda:[Debug] Dispatching dequeue action")) {
                         try {
                             filaHorda.dequeue();
                         } catch (Exception e) {}
-                    } else if (msgSim.equals("SimuladorDeque:[Debug] Dispatching removeLast action")) {
+                    } else if (msgSim.equals("Deque de Invasores:[Debug] Dispatching removeLast action")) {
                         if (!invasoresHistorico.isEmpty()) invasoresHistorico.remove(invasoresHistorico.size() - 1);
-                    } else if (msgSim.equals("SimuladorDeque:[Debug] Dispatching removeFirst action")) {
+                    } else if (msgSim.equals("Deque de Invasores:[Debug] Dispatching removeFirst action")) {
                         if (!invasoresHistorico.isEmpty()) invasoresHistorico.remove(0);
-                    } else if (msgSim.equals("SimuladorPilha:[Debug] Dispatching pop action")) {
+                    } else if (msgSim.equals("Pilha de Melhorias (Torre):[Debug] Dispatching pop action")) {
                         if (ultimaTorreSincronizada != null) {
                             if (ultimaTorreSincronizada.getNivel() > 0) {
                                 ultimaTorreSincronizada.removerUltimaMelhoria();
@@ -410,6 +404,16 @@ public class JogoTorreDefesa extends EngineFrame {
                             }
                             dinheiro += 20;
                         }
+                    } else if (msgSim.equals("Deque de Ativos:[Debug] Dispatching removeFirst action")) {
+                        try {
+                            Inimigo removido = inimigosVivos.removeFirst();
+                            dinheiro += removido.getVidaMaxima() / 10;
+                        } catch (Exception e) {}
+                    } else if (msgSim.equals("Deque de Ativos:[Debug] Dispatching removeLast action")) {
+                        try {
+                            Inimigo removido = inimigosVivos.removeLast();
+                            dinheiro += removido.getVidaMaxima() / 10;
+                        } catch (Exception e) {}
                     }
                 }
                 
@@ -445,9 +449,9 @@ public class JogoTorreDefesa extends EngineFrame {
                 }
                 
                 if ( clicou && botaoVerAtivos.mouseSobre && (simuladorAtivos == null || !simuladorAtivos.isVivo()) ) {
-                    simuladorAtivos = new ProcessoSimulador("SimuladorLista", 700, 50, "Lista de Ativos");
+                    simuladorAtivos = new ProcessoSimulador("SimuladorDeque", 700, 50, "Deque de Ativos");
                     for (Inimigo i : inimigosVivos) {
-                        simuladorAtivos.enviar("ADD " + i.getNome());
+                        simuladorAtivos.enviar("ADD_LAST " + i.getNome());
                     }
                 }
                 
@@ -494,25 +498,35 @@ public class JogoTorreDefesa extends EngineFrame {
                     cooldownSpawnInimigo = 2.0;
                     try {
                         Inimigo i = filaHorda.dequeue();
-                        inimigosVivos.add(i);
+                        inimigosVivos.addLast(i);
                         if (simuladorHorda != null) simuladorHorda.enviar("DEQUEUE");
-                        if (simuladorAtivos != null) simuladorAtivos.enviar("ADD " + i.getNome());
+                        if (simuladorAtivos != null) simuladorAtivos.enviar("ADD_LAST " + i.getNome());
                     } catch (Exception e) {}
                 }
                 
-                for (int idx = inimigosVivos.size() - 1; idx >= 0; idx--) {
-                    Inimigo i = inimigosVivos.get(idx);
+                Deque<Inimigo> proximos = new DoublyLinkedDeque<>();
+                boolean sofreuRemocao = false;
+                for (Inimigo i : inimigosVivos) {
                     if (i.estaMorto()) {
                         dinheiro += i.getVidaMaxima() / 10;
-                        inimigosVivos.remove(idx);
-                        if (simuladorAtivos != null) simuladorAtivos.enviar("REMOVE " + idx);
+                        sofreuRemocao = true;
                     } else {
                         boolean chegou = i.atualizarMovimento(delta);
                         if (chegou) {
-                            inimigosVivos.remove(idx);
                             invasoresHistorico.add(i);
-                            if (simuladorAtivos != null) simuladorAtivos.enviar("REMOVE " + idx);
                             if (simuladorInvasores != null) simuladorInvasores.enviar("ADD_LAST " + i.getNome());
+                            sofreuRemocao = true;
+                        } else {
+                            proximos.addLast(i);
+                        }
+                    }
+                }
+                if (sofreuRemocao) {
+                    inimigosVivos = proximos;
+                    if (simuladorAtivos != null) {
+                        simuladorAtivos.enviar("CLEAR");
+                        for (Inimigo i : inimigosVivos) {
+                            simuladorAtivos.enviar("ADD_LAST " + i.getNome());
                         }
                     }
                 }
@@ -793,6 +807,7 @@ public class JogoTorreDefesa extends EngineFrame {
         Inimigo maisProximo = null;
         double menorDistancia = Double.MAX_VALUE;
         
+        int corIndex = 0;
         for ( Inimigo m : inimigosVivos ) {
             
             if ( m.estaMorto() || jaAtingidos.contains( m ) ) {
@@ -881,6 +896,7 @@ public class JogoTorreDefesa extends EngineFrame {
         Inimigo maisProximo = null;
         double menorDistancia = Double.MAX_VALUE;
         
+        int corIndex = 0;
         for ( Inimigo m : inimigosVivos ) {
             
             if ( m.estaMorto() ) {
@@ -1125,9 +1141,8 @@ public class JogoTorreDefesa extends EngineFrame {
         
         int tile = mapa.getTamanhoTile();
         
-        for ( int i = 0; i < inimigosVivos.size(); i++ ) {
-            
-            Inimigo m = inimigosVivos.get( i );
+        int corIndex = 0;
+        for ( Inimigo m : inimigosVivos ) {
             if ( m.estaMorto() ) {
                 continue;
             }
@@ -1137,7 +1152,7 @@ public class JogoTorreDefesa extends EngineFrame {
             double raio = tile * 0.35;
             
             fillCircle( cx, cy, raio + 2, COR_BORDA_MANEQUIM );
-            fillCircle( cx, cy, raio, CORES_MANEQUINS[ i % CORES_MANEQUINS.length ] );
+            fillCircle( cx, cy, raio, CORES_MANEQUINS[ corIndex++ % CORES_MANEQUINS.length ] );
             
             textoCentro( m.getVidaAtual() + "/" + m.getVidaMaxima(), cx, cy - raio - 12, 11, COR_TEXTO_MENU );
             
@@ -1384,7 +1399,7 @@ public class JogoTorreDefesa extends EngineFrame {
                     try {
                         while((linha = in.readLine()) != null) {
                             System.out.println("[SIMULADOR " + classe + "] " + linha);
-                            mensagensDoSimulador.add(classe + ":" + linha);
+                            mensagensDoSimulador.add(titulo + ":" + linha);
                         }
                     } catch (Exception e) {}
                 }).start();
