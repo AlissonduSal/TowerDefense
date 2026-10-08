@@ -140,6 +140,15 @@ public abstract class SimuladorBase extends EngineFrame {
         cursorAtual = MOUSE_CURSOR_DEFAULT;
         
         inicializarEstrutura();
+        
+        String posX = System.getProperty("winX");
+        String posY = System.getProperty("winY");
+        if (posX != null && posY != null) {
+            java.awt.Window[] janelas = java.awt.Window.getWindows();
+            if (janelas.length > 0 && janelas[0] != null) {
+                janelas[0].setLocation(Integer.parseInt(posX), Integer.parseInt(posY));
+            }
+        }
     }
     
     protected abstract void inicializarEstrutura();

@@ -21,29 +21,40 @@ public class SimuladorPilha extends SimuladorBase {
 
     private Stack<String> pilha;
     private double yEtiquetaTopo;
+    
+    private java.util.concurrent.ConcurrentLinkedQueue<String> comandosPendentes;
 
     public SimuladorPilha() {
-        super( "Simulador de Pilha" );
+        super( System.getProperty("titulo", "Simulador de Pilha") );
     }
 
     @Override
     protected void inicializarEstrutura() {
+        comandosPendentes = new java.util.concurrent.ConcurrentLinkedQueue<>();
         pilha = new LinkedStack<>();
-        pilha.push( "a" );
-        enderecos.push( gerarEndereco() );
-        pilha.push( "b" );
-        enderecos.push( gerarEndereco() );
-        pilha.push( "c" );
-        enderecos.push( gerarEndereco() );
         
-        yEtiquetaTopo = yCentroNo( 0, pilha.getSize(), 1 );
+        yEtiquetaTopo = pilha.isEmpty() ? BASE_Y - NO_ALTURA / 2.0 : yCentroNo( 0, pilha.getSize(), 1 );
         
         acoes.add(new TokenAcao("[ pop · shift+enter ]", this::remover));
         acoes.add(new TokenAcao("[ push · enter ]", this::adicionar));
         
-        registrarComando( "push(\"a\")", false );
-        registrarComando( "push(\"b\")", false );
-        registrarComando( "push(\"c\")", false );
+        new Thread(() -> {
+            java.util.Scanner s = new java.util.Scanner(System.in);
+            while (s.hasNextLine()) {
+                comandosPendentes.add(s.nextLine());
+            }
+        }).start();
+    }
+
+    @Override
+    public void update(double delta) {
+        super.update(delta);
+        String cmd;
+        while ((cmd = comandosPendentes.poll()) != null) {
+            if (cmd.startsWith("PUSH ")) pushExterno(cmd.substring(5));
+            else if (cmd.equals("POP")) popExterno();
+            else if (cmd.equals("CLEAR")) limparExterno();
+        }
     }
 
     @Override
@@ -88,9 +99,52 @@ public class SimuladorPilha extends SimuladorBase {
             nosSaindo.add( saindo );
             tempoEntrada = 1000;
             registrarComando( "pop() → \"" + valor + "\"", false );
+            
+            System.out.println("[Debug] Dispatching pop action");
+            
         } catch ( EmptyStackException exc ) {
             registrarComando( "pop() em pilha vazia", true );
         }
+    }
+
+    public void pushExterno(String valor) {
+        if ( valor == null || valor.trim().isEmpty() ) return;
+        pilha.push( valor.trim() );
+        enderecos.push( gerarEndereco() );
+        tempoEntrada = 0;
+        registrarComando( "push(\"" + valor.trim() + "\") [EXTERNO]", false );
+        atualizarVisao();
+    }
+
+    public void popExterno() {
+        try {
+            NoSaindo saindo = new NoSaindo();
+            saindo.escala = escala;
+            saindo.y = yTopoNo( 0, pilha.getSize(), escala );
+            
+            String valor = pilha.pop();
+            long endereco = enderecos.pop();
+            
+            saindo.valor = valor;
+            saindo.endereco = endereco;
+            nosSaindo.add( saindo );
+            tempoEntrada = 1000;
+            registrarComando( "pop() → \"" + valor + "\" [EXTERNO]", false );
+            atualizarVisao();
+        } catch ( EmptyStackException exc ) {
+            registrarComando( "pop() externo em pilha vazia", true );
+        }
+    }
+
+    public void limparExterno() {
+        while (!pilha.isEmpty()) {
+            try { pilha.pop(); } catch(Exception e){}
+        }
+        enderecos.clear();
+        nosSaindo.clear();
+        tempoEntrada = DURACAO_ENTRADA;
+        registrarComando("Contexto trocado (Limpeza Externa)", false);
+        atualizarVisao();
     }
 
     @Override
@@ -136,12 +190,14 @@ public class SimuladorPilha extends SimuladorBase {
                     a = e;
                 }
                 
-                desenharNo( visao.get( i ), CENTRO_X, y, escala, a, i == 0, i == n - 1 ? -1 : yTopoNo( i + 1, n, escala ), false );
-                desenharEnderecoNo( enderecosVisao.get( i ), y, h( escala ), escala, a, CENTRO_X );
+                desenharNo( i < visao.size() ? visao.get( i ) : "", CENTRO_X, y, escala, a, i == 0, i == n - 1 ? -1 : yTopoNo( i + 1, n, escala ), false );
+                desenharEnderecoNo( i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L, y, h( escala ), escala, a, CENTRO_X );
                 
                 if ( i < n - 1 ) {
                     double yProximo = yTopoNo( i + 1, n, escala );
-                    desenharDelta( enderecosVisao.get( i ), enderecosVisao.get( i + 1 ), y + h( escala ), yProximo, escala, a );
+                    long endA = i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L;
+                    long endB = (i + 1) < enderecosVisao.size() ? enderecosVisao.get( i + 1 ) : 0L;
+                    desenharDelta( endA, endB, y + h( escala ), yProximo, escala, a );
                 }
             }
             

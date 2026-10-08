@@ -5,6 +5,12 @@ import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.io.PrintWriter;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import aesd.ds.interfaces.Queue;
+import aesd.ds.implementations.linear.LinkedQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Torre Defesa
@@ -101,6 +107,11 @@ public class JogoTorreDefesa extends EngineFrame {
     private Botao botaoJogar;
     private Botao botaoVoltar;
     private Botao botaoPausar;
+    private Botao botaoVerHorda;
+    private Botao botaoVerTorres;
+    private Botao botaoVerAtivos;
+    private Botao botaoVerInvasores;
+    
     private Botao botaoContinuar;
     private Botao botaoMenuPrincipal;
     private List<Botao> botoesMapas;
@@ -113,16 +124,29 @@ public class JogoTorreDefesa extends EngineFrame {
     private MapaConfig mapa;
     private TipoCelula[][] grade;
     
-    private static final int DINHEIRO_INICIAL = 20; // dá exatamente pro Banco de dinheiro
+    private static final int DINHEIRO_INICIAL = 200;
     private static final double ALTURA_PAINEL = 74;
     
     private int dinheiro;
     private List<Torre> torresPosicionadas;
     private Torre tipoDeTorreSelecionada;
     private Torre torreEmMao; // torre desempilhada, esperando ser posicionada de novo
+    private Torre ultimaTorreSincronizada;
     private List<Botao> botoesTorres;
-    private List<Manequim> manequins;
+    private List<Manequim> manequins; // obsoleto, mas mantido pra evitar erros no restante do arquivo
     private List<EfeitoVisual> efeitos;
+    
+    private Queue<Inimigo> filaHorda;
+    private List<Inimigo> inimigosVivos;
+    private List<Inimigo> invasoresHistorico;
+    private double cooldownSpawnInimigo;
+    
+    private ProcessoSimulador simuladorHorda;
+    private ProcessoSimulador simuladorTorres;
+    private ProcessoSimulador simuladorAtivos;
+    private ProcessoSimulador simuladorInvasores;
+    
+    private ConcurrentLinkedQueue<String> mensagensDoSimulador = new ConcurrentLinkedQueue<>();
     
     public JogoTorreDefesa() {
         
@@ -148,6 +172,10 @@ public class JogoTorreDefesa extends EngineFrame {
         botaoJogar = new Botao( CENTRO_X - 110, ALTURA_JANELA * 0.58, 220, 56, "Jogar" );
         botaoVoltar = new Botao( 24, 24, 100, 36, "< voltar" );
         botaoPausar = new Botao( LARGURA_JANELA - 90, 16, 74, 36, "Pausar" );
+        botaoVerHorda = new Botao( LARGURA_JANELA - 200, 16, 100, 36, "Ver Horda" );
+        botaoVerTorres = new Botao( LARGURA_JANELA - 310, 16, 100, 36, "Ver Torres" );
+        botaoVerAtivos = new Botao( LARGURA_JANELA - 545, 16, 100, 36, "Ver Ativos" );
+        botaoVerInvasores = new Botao( LARGURA_JANELA - 435, 16, 115, 36, "Ver Invasores" );
         botaoContinuar = new Botao( CENTRO_X - 120, ALTURA_JANELA * 0.46, 240, 56, "Continuar" );
         botaoMenuPrincipal = new Botao( CENTRO_X - 120, ALTURA_JANELA * 0.46 + 72, 240, 56, "Menu principal" );
         botoesMapas = new ArrayList<>();
@@ -156,6 +184,13 @@ public class JogoTorreDefesa extends EngineFrame {
         
         montarBotoesDosMapas();
         montarBotoesDeTorres();
+        
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (simuladorHorda != null && simuladorHorda.p != null) simuladorHorda.p.destroy();
+            if (simuladorTorres != null && simuladorTorres.p != null) simuladorTorres.p.destroy();
+            if (simuladorAtivos != null && simuladorAtivos.p != null) simuladorAtivos.p.destroy();
+            if (simuladorInvasores != null && simuladorInvasores.p != null) simuladorInvasores.p.destroy();
+        }));
         
     }
     
@@ -214,7 +249,34 @@ public class JogoTorreDefesa extends EngineFrame {
         torreEmMao = null;
         efeitos = new ArrayList<>();
         
-        posicionarManequins();
+        filaHorda = new LinkedQueue<>();
+        inimigosVivos = new ArrayList<>();
+        invasoresHistorico = new ArrayList<>();
+        cooldownSpawnInimigo = 2.0;
+        
+        if (simuladorHorda != null && simuladorHorda.isVivo()) {
+            simuladorHorda.enviar("CLEAR");
+        }
+        
+        for (int i = 1; i <= 10; ++i) {
+            Inimigo zumbi = new Inimigo("Zumbi " + i, 100, 30.0, 10);
+            zumbi.setCaminho(mapa.getWaypoints(), mapa.getTamanhoTile());
+            filaHorda.enqueue(zumbi);
+            if (simuladorHorda != null) {
+                simuladorHorda.enviar("ENQUEUE Zumbi " + i);
+            }
+        }
+        
+        for (int i = 1; i <= 5; ++i) {
+            Inimigo corredor = new Inimigo("Corredor " + i, 50, 70.0, 5);
+            corredor.setCaminho(mapa.getWaypoints(), mapa.getTamanhoTile());
+            filaHorda.enqueue(corredor);
+            if (simuladorHorda != null) {
+                simuladorHorda.enviar("ENQUEUE Corredor " + i);
+            }
+        }
+        
+        // posicionarManequins();
         
     }
     
@@ -226,7 +288,7 @@ public class JogoTorreDefesa extends EngineFrame {
      */
     private void posicionarManequins() {
         
-        manequins = new ArrayList<>();
+        
         
         double[] fracoesDeColuna = { 0.2, 0.5, 0.8 };
         for ( int i = 0; i < fracoesDeColuna.length; i++ ) {
@@ -249,7 +311,7 @@ public class JogoTorreDefesa extends EngineFrame {
         
         Manequim m = new Manequim( nome );
         m.posicionarEm( posicao[0], posicao[1] );
-        manequins.add( m );
+        inimigosVivos.add( m );
         
     }
     
@@ -320,10 +382,80 @@ public class JogoTorreDefesa extends EngineFrame {
                 
             case JOGANDO:
                 
+                String msgSim;
+                while ((msgSim = mensagensDoSimulador.poll()) != null) {
+                    if (msgSim.startsWith("SimuladorLista:[Debug] Dispatching remove action for index: ")) {
+                        try {
+                            int idx = Integer.parseInt(msgSim.substring("SimuladorLista:[Debug] Dispatching remove action for index: ".length()));
+                            if (idx >= 0 && idx < inimigosVivos.size()) {
+                                Inimigo removido = inimigosVivos.remove(idx);
+                                dinheiro += removido.getVidaMaxima() / 10;
+                            }
+                        } catch (Exception e) {}
+                    } else if (msgSim.equals("SimuladorFila:[Debug] Dispatching dequeue action")) {
+                        try {
+                            filaHorda.dequeue();
+                        } catch (Exception e) {}
+                    } else if (msgSim.equals("SimuladorDeque:[Debug] Dispatching removeLast action")) {
+                        if (!invasoresHistorico.isEmpty()) invasoresHistorico.remove(invasoresHistorico.size() - 1);
+                    } else if (msgSim.equals("SimuladorDeque:[Debug] Dispatching removeFirst action")) {
+                        if (!invasoresHistorico.isEmpty()) invasoresHistorico.remove(0);
+                    } else if (msgSim.equals("SimuladorPilha:[Debug] Dispatching pop action")) {
+                        if (ultimaTorreSincronizada != null) {
+                            if (ultimaTorreSincronizada.getNivel() > 0) {
+                                ultimaTorreSincronizada.removerUltimaMelhoria();
+                            } else {
+                                torresPosicionadas.remove(ultimaTorreSincronizada);
+                                ultimaTorreSincronizada = null;
+                            }
+                            dinheiro += 20;
+                        }
+                    }
+                }
+                
                 botaoPausar.mouseSobre = botaoPausar.contem( mx, my );
-                mouseSobreAlgumBotao = botaoPausar.mouseSobre;
+                botaoVerHorda.mouseSobre = botaoVerHorda.contem( mx, my );
+                botaoVerTorres.mouseSobre = botaoVerTorres.contem( mx, my );
+                botaoVerAtivos.mouseSobre = botaoVerAtivos.contem( mx, my );
+                botaoVerInvasores.mouseSobre = botaoVerInvasores.contem( mx, my );
+                
+                mouseSobreAlgumBotao = botaoPausar.mouseSobre || botaoVerHorda.mouseSobre || botaoVerTorres.mouseSobre || botaoVerAtivos.mouseSobre || botaoVerInvasores.mouseSobre;
+                
                 if ( clicou && botaoPausar.mouseSobre ) {
                     estado = EstadoJogo.PAUSADO;
+                }
+                
+                if ( clicou && botaoVerHorda.mouseSobre && (simuladorHorda == null || !simuladorHorda.isVivo()) ) {
+                    simuladorHorda = new ProcessoSimulador("SimuladorFila", 50, 50, "Fila da Horda");
+                    try {
+                        List<Inimigo> temp = new ArrayList<>();
+                        while (!filaHorda.isEmpty()) { temp.add(filaHorda.dequeue()); }
+                        for (Inimigo i : temp) {
+                            filaHorda.enqueue(i);
+                            simuladorHorda.enviar("ENQUEUE " + i.getNome());
+                        }
+                    } catch(Exception e) {}
+                }
+                
+                if ( clicou && botaoVerTorres.mouseSobre && (simuladorTorres == null || !simuladorTorres.isVivo()) ) {
+                    simuladorTorres = new ProcessoSimulador("SimuladorPilha", 50, 450, "Pilha de Melhorias (Torre)");
+                    if (!torresPosicionadas.isEmpty()) {
+                        sincronizarSimuladorTorre(torresPosicionadas.get(0));
+                    }
+                }
+                
+                if ( clicou && botaoVerAtivos.mouseSobre && (simuladorAtivos == null || !simuladorAtivos.isVivo()) ) {
+                    simuladorAtivos = new ProcessoSimulador("SimuladorLista", 700, 50, "Lista de Ativos");
+                    for (Inimigo i : inimigosVivos) {
+                        simuladorAtivos.enviar("ADD " + i.getNome());
+                    }
+                }
+                
+                if ( clicou && botaoVerInvasores.mouseSobre && (simuladorInvasores == null || !simuladorInvasores.isVivo()) ) {
+                    simuladorInvasores = new ProcessoSimulador("SimuladorDeque", 700, 450, "Deque de Invasores");
+                    for (Inimigo i : invasoresHistorico) {
+                        simuladorInvasores.enviar("ADD_LAST " + i.getNome());
+                    }
                 }
                 
                 List<Torre> tiposDisponiveis = Torres.disponiveis();
@@ -345,12 +477,44 @@ public class JogoTorreDefesa extends EngineFrame {
                         tentarPosicionarTorreEmMao( mx, my );
                     } else if ( tipoDeTorreSelecionada != null ) {
                         tentarColocarOuMelhorarTorre( mx, my );
+                    } else {
+                        int tile = mapa.getTamanhoTile();
+                        Torre t = encontrarTorreEm( mx / tile, my / tile );
+                        if (t != null) sincronizarSimuladorTorre(t);
                     }
                 }
                 
                 // clique direito numa torre colocada: desempilha a última melhoria
                 if ( clicouDireito && cliqueNoMapa ) {
                     tentarDesempilharMelhoria( mx, my );
+                }
+                
+                cooldownSpawnInimigo -= delta;
+                if (cooldownSpawnInimigo <= 0 && !filaHorda.isEmpty()) {
+                    cooldownSpawnInimigo = 2.0;
+                    try {
+                        Inimigo i = filaHorda.dequeue();
+                        inimigosVivos.add(i);
+                        if (simuladorHorda != null) simuladorHorda.enviar("DEQUEUE");
+                        if (simuladorAtivos != null) simuladorAtivos.enviar("ADD " + i.getNome());
+                    } catch (Exception e) {}
+                }
+                
+                for (int idx = inimigosVivos.size() - 1; idx >= 0; idx--) {
+                    Inimigo i = inimigosVivos.get(idx);
+                    if (i.estaMorto()) {
+                        dinheiro += i.getVidaMaxima() / 10;
+                        inimigosVivos.remove(idx);
+                        if (simuladorAtivos != null) simuladorAtivos.enviar("REMOVE " + idx);
+                    } else {
+                        boolean chegou = i.atualizarMovimento(delta);
+                        if (chegou) {
+                            inimigosVivos.remove(idx);
+                            invasoresHistorico.add(i);
+                            if (simuladorAtivos != null) simuladorAtivos.enviar("REMOVE " + idx);
+                            if (simuladorInvasores != null) simuladorInvasores.enviar("ADD_LAST " + i.getNome());
+                        }
+                    }
                 }
                 
                 atualizarTorres( delta );
@@ -418,6 +582,8 @@ public class JogoTorreDefesa extends EngineFrame {
             
             dinheiro -= custo;
             torreNaCelula.aplicarMelhoria( Torres.criarNova( tipoDeTorreSelecionada ) );
+            sincronizarSimuladorTorre(torreNaCelula);
+            tipoDeTorreSelecionada = null;
             
         } else {
             
@@ -425,6 +591,8 @@ public class JogoTorreDefesa extends EngineFrame {
             Torre novaTorre = Torres.criarNova( tipoDeTorreSelecionada );
             novaTorre.posicionarEm( coluna, linha );
             torresPosicionadas.add( novaTorre );
+            sincronizarSimuladorTorre(novaTorre);
+            tipoDeTorreSelecionada = null;
             
         }
         
@@ -440,6 +608,16 @@ public class JogoTorreDefesa extends EngineFrame {
         
         return null;
         
+    }
+    
+    private void sincronizarSimuladorTorre(Torre torre) {
+        ultimaTorreSincronizada = torre;
+        if (simuladorTorres == null) return;
+        simuladorTorres.enviar("CLEAR");
+        simuladorTorres.enviar("PUSH " + torre.getNome() + " (Base)");
+        for (int i = 0; i < torre.getNivel(); i++) {
+            simuladorTorres.enviar("PUSH Melhoria N" + (i + 1));
+        }
     }
     
     /**
@@ -464,6 +642,7 @@ public class JogoTorreDefesa extends EngineFrame {
         if ( desempilhada != null ) {
             torreEmMao = desempilhada;
             tipoDeTorreSelecionada = null;
+            if (simuladorTorres != null) simuladorTorres.enviar("POP");
         }
         
     }
@@ -577,13 +756,13 @@ public class JogoTorreDefesa extends EngineFrame {
      */
     private void processarAtaqueTacador( TacadorDeBolinha tacador ) {
         
-        Manequim alvoAtual = encontrarAlvoMaisProximo( tacador );
+        Inimigo alvoAtual = encontrarAlvoMaisProximo( tacador );
         if ( alvoAtual == null ) {
             return;
         }
         
         int maxRicochetes = tacador.getQuantidadeDeRicochete();
-        List<Manequim> atingidos = new ArrayList<>();
+        List<Inimigo> atingidos = new ArrayList<>();
         double[] origem = centroDaCelula( tacador.getColuna(), tacador.getLinha() );
         
         while ( alvoAtual != null ) {
@@ -609,12 +788,12 @@ public class JogoTorreDefesa extends EngineFrame {
     }
     
     /** O manequim vivo mais próximo do último atingido, dentro de ALCANCE_RICOCHETE, que ainda não foi atingido. */
-    private Manequim encontrarProximoAlvoDeRicochete( Manequim ultimoAtingido, List<Manequim> jaAtingidos ) {
+    private Inimigo encontrarProximoAlvoDeRicochete( Inimigo ultimoAtingido, List<Inimigo> jaAtingidos ) {
         
-        Manequim maisProximo = null;
+        Inimigo maisProximo = null;
         double menorDistancia = Double.MAX_VALUE;
         
-        for ( Manequim m : manequins ) {
+        for ( Inimigo m : inimigosVivos ) {
             
             if ( m.estaMorto() || jaAtingidos.contains( m ) ) {
                 continue;
@@ -643,7 +822,7 @@ public class JogoTorreDefesa extends EngineFrame {
      */
     private void processarAtaqueBoxeador( Boxeador boxeador ) {
         
-        Manequim alvo = encontrarAlvoMaisProximo( boxeador );
+        Inimigo alvo = encontrarAlvoMaisProximo( boxeador );
         if ( alvo == null ) {
             return;
         }
@@ -697,12 +876,12 @@ public class JogoTorreDefesa extends EngineFrame {
     }
     
     /** O manequim vivo mais próximo desta torre que ainda está dentro do alcance dela. */
-    private Manequim encontrarAlvoMaisProximo( Torre torre ) {
+    private Inimigo encontrarAlvoMaisProximo( Torre torre ) {
         
-        Manequim maisProximo = null;
+        Inimigo maisProximo = null;
         double menorDistancia = Double.MAX_VALUE;
         
-        for ( Manequim m : manequins ) {
+        for ( Inimigo m : inimigosVivos ) {
             
             if ( m.estaMorto() ) {
                 continue;
@@ -846,7 +1025,7 @@ public class JogoTorreDefesa extends EngineFrame {
             desenharPreviewDeAlcance();
         }
         
-        desenharManequins();
+        desenharInimigos();
         desenharTorres();
         desenharEfeitos();
         desenharPainelDeTorres();
@@ -854,6 +1033,10 @@ public class JogoTorreDefesa extends EngineFrame {
         
         if ( interativo ) {
             desenharBotao( botaoPausar );
+            desenharBotao( botaoVerHorda );
+            desenharBotao( botaoVerTorres );
+            desenharBotao( botaoVerAtivos );
+            desenharBotao( botaoVerInvasores );
         }
         
     }
@@ -938,19 +1121,19 @@ public class JogoTorreDefesa extends EngineFrame {
     }
     
     /** Os manequins de teste, como bolinhas coloridas com a vida escrita em cima. */
-    private void desenharManequins() {
+    private void desenharInimigos() {
         
         int tile = mapa.getTamanhoTile();
         
-        for ( int i = 0; i < manequins.size(); i++ ) {
+        for ( int i = 0; i < inimigosVivos.size(); i++ ) {
             
-            Manequim m = manequins.get( i );
+            Inimigo m = inimigosVivos.get( i );
             if ( m.estaMorto() ) {
                 continue;
             }
             
-            double cx = m.getColuna() * tile + tile / 2.0;
-            double cy = m.getLinha() * tile + tile / 2.0;
+            double cx = m.getXReal() != Inimigo.SEM_POSICAO ? m.getXReal() : m.getColuna() * tile + tile / 2.0;
+            double cy = m.getYReal() != Inimigo.SEM_POSICAO ? m.getYReal() : m.getLinha() * tile + tile / 2.0;
             double raio = tile * 0.35;
             
             fillCircle( cx, cy, raio + 2, COR_BORDA_MANEQUIM );
@@ -1182,4 +1365,42 @@ public class JogoTorreDefesa extends EngineFrame {
         new JogoTorreDefesa();
     }
     
+    private class ProcessoSimulador {
+        Process p;
+        PrintWriter out;
+
+        public ProcessoSimulador(String classe, int startX, int startY, String titulo) {
+            try {
+                String javaCmd = System.getProperty("java.home") + "/bin/java";
+                String cp = System.getProperty("java.class.path");
+                ProcessBuilder pb = new ProcessBuilder(new String[]{javaCmd, "-cp", cp, "-DwinX=" + startX, "-DwinY=" + startY, "-Dtitulo=" + titulo, "projetoesdlinear." + classe});
+                pb.redirectErrorStream(true);
+                this.p = pb.start();
+                this.p.onExit().thenRun(() -> System.out.println(classe + " fechado"));
+                this.out = new PrintWriter(this.p.getOutputStream(), true);
+                BufferedReader in = new BufferedReader(new InputStreamReader(this.p.getInputStream()));
+                new Thread(() -> {
+                    String linha;
+                    try {
+                        while((linha = in.readLine()) != null) {
+                            System.out.println("[SIMULADOR " + classe + "] " + linha);
+                            mensagensDoSimulador.add(classe + ":" + linha);
+                        }
+                    } catch (Exception e) {}
+                }).start();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        public void enviar(String comando) {
+            if (this.out != null && this.isVivo()) {
+                this.out.println(comando);
+            }
+        }
+
+        public boolean isVivo() {
+            return this.p != null && this.p.isAlive();
+        }
+    }
 }

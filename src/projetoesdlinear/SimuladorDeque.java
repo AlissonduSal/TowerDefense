@@ -6,6 +6,8 @@ import aesd.ds.interfaces.Deque;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.Scanner;
 
 /**
  * Simulador de deque:
@@ -24,6 +26,7 @@ public class SimuladorDeque extends SimuladorBase {
     private Deque<String> deque;
     private double xEtiquetaFim;
     private double xEtiquetaFrente;
+    private ConcurrentLinkedQueue<String> comandosPendentes = new ConcurrentLinkedQueue<>();
 
     public SimuladorDeque() {
         super( "Simulador de Deque" );
@@ -31,25 +34,54 @@ public class SimuladorDeque extends SimuladorBase {
 
     @Override
     protected void inicializarEstrutura() {
+        comandosPendentes = new ConcurrentLinkedQueue<>();
         deque = new DoublyLinkedDeque<>();
-        deque.addLast( "a" );
-        enderecos.addLast( gerarEndereco() );
-        deque.addLast( "b" );
-        enderecos.addLast( gerarEndereco() );
-        deque.addLast( "c" );
-        enderecos.addLast( gerarEndereco() );
         
-        xEtiquetaFim = xCentroNo( deque.getSize() - 1, deque.getSize(), 1 );
-        xEtiquetaFrente = xCentroNo( 0, deque.getSize(), 1 );
+        xEtiquetaFim = deque.isEmpty() ? ORIGEM_X : xCentroNo( deque.getSize() - 1, deque.getSize(), 1 );
+        xEtiquetaFrente = deque.isEmpty() ? ORIGEM_X : xCentroNo( 0, deque.getSize(), 1 );
         
         acoes.add(new TokenAcao("[ removeLast ]", this::removerFim));
         acoes.add(new TokenAcao("[ removeFirst · shift+enter ]", this::removerInicio));
         acoes.add(new TokenAcao("[ addLast ]", this::adicionarFim));
         acoes.add(new TokenAcao("[ addFirst · enter ]", this::adicionarInicio));
         
-        registrarComando( "addLast(\"a\")", false );
-        registrarComando( "addLast(\"b\")", false );
-        registrarComando( "addLast(\"c\")", false );
+        new Thread(() -> {
+            Scanner s = new Scanner(System.in);
+            while (s.hasNextLine()) {
+                comandosPendentes.add(s.nextLine());
+            }
+        }).start();
+    }
+
+    @Override
+    public void update(double delta) {
+        super.update(delta);
+        String cmd;
+        while ((cmd = comandosPendentes.poll()) != null) {
+            if (cmd.startsWith("ADD_LAST ")) {
+                String val = cmd.substring(9);
+                deque.addLast(val);
+                enderecos.addLast(gerarEndereco());
+                registrarComando("addLast(\"" + val + "\")", false);
+            } else if (cmd.startsWith("ADD_FIRST ")) {
+                String val = cmd.substring(10);
+                deque.addFirst(val);
+                enderecos.addFirst(gerarEndereco());
+                registrarComando("addFirst(\"" + val + "\")", false);
+            } else if (cmd.equals("REMOVE_LAST") && !deque.isEmpty()) {
+                deque.removeLast();
+                enderecos.removeLast();
+                registrarComando("removeLast()", false);
+            } else if (cmd.equals("REMOVE_FIRST") && !deque.isEmpty()) {
+                deque.removeFirst();
+                enderecos.removeFirst();
+                registrarComando("removeFirst()", false);
+            } else if (cmd.equals("CLEAR")) {
+                deque.clear();
+                enderecos.clear();
+                registrarComando("clear()", false);
+            }
+        }
     }
 
     @Override
@@ -126,6 +158,7 @@ public class SimuladorDeque extends SimuladorBase {
             nosSaindo.add( saindo );
             tempoEntrada = 1000;
             registrarComando( "removeFirst() → \"" + valor + "\"", false );
+            System.out.println("[Debug] Dispatching removeFirst action");
         } catch ( EmptyDequeException exc ) {
             registrarComando( "removeFirst() em deque vazia", true );
         }
@@ -146,6 +179,7 @@ public class SimuladorDeque extends SimuladorBase {
             nosSaindo.add( saindo );
             tempoEntrada = 1000;
             registrarComando( "removeLast() → \"" + valor + "\"", false );
+            System.out.println("[Debug] Dispatching removeLast action");
         } catch ( EmptyDequeException exc ) {
             registrarComando( "removeLast() em deque vazia", true );
         }
@@ -193,14 +227,17 @@ public class SimuladorDeque extends SimuladorBase {
                 double xProximo = ( i == n - 1 ) ? -1 : xEsquerdaNo( i + 1, n, escala );
                 double xAnterior = ( i == 0 ) ? -1 : xEsquerdaNo( i - 1, n, escala ) + NO_LARGURA * escala;
                 
-                desenharNo( visao.get( i ), CENTRO_Y, xEsq, escala, a, (i == 0 || i == n - 1), xProximo, xAnterior, false );
+                desenharNo( i < visao.size() ? visao.get( i ) : "", CENTRO_Y, xEsq, escala, a, (i == 0 || i == n - 1), xProximo, xAnterior, false );
                 
                 double cxNo = xEsq + NO_LARGURA * escala / 2.0;
-                desenharEnderecoNo( enderecosVisao.get( i ), cxNo, escala, a );
+                long end = i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L;
+                desenharEnderecoNo( end, cxNo, escala, a );
                 
                 if ( i < n - 1 && escala > 0.55 ) {
                     double cxDepois = xEsquerdaNo( i + 1, n, escala ) + NO_LARGURA * escala / 2.0;
-                    desenharDelta( enderecosVisao.get( i ), enderecosVisao.get( i + 1 ), ( cxNo + cxDepois ) / 2.0, escala, a );
+                    long endA = i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L;
+                    long endB = (i + 1) < enderecosVisao.size() ? enderecosVisao.get( i + 1 ) : 0L;
+                    desenharDelta( endA, endB, ( cxNo + cxDepois ) / 2.0, escala, a );
                 }
             }
             

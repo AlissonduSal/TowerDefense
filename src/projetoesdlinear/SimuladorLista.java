@@ -6,6 +6,8 @@ import aesd.ds.implementations.linear.DoublyLinkedList;
 import aesd.ds.interfaces.List;
 import java.awt.Color;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.Scanner;
 
 /**
  * Simulador de lista:
@@ -27,6 +29,7 @@ public class SimuladorLista extends SimuladorBase {
     private List<String> lista;
     private java.util.List<Long> enderecosLista;
     private double xEtiquetaFrente;
+    private ConcurrentLinkedQueue<String> comandosPendentes = new ConcurrentLinkedQueue<>();
 
     public SimuladorLista() {
         super( "Simulador de Lista" );
@@ -34,32 +37,62 @@ public class SimuladorLista extends SimuladorBase {
 
     @Override
     protected void inicializarEstrutura() {
+        comandosPendentes = new ConcurrentLinkedQueue<>();
         lista = new DoublyLinkedList<>();
         enderecosLista = new java.util.LinkedList<>();
         
-        lista.add( "a" );
-        enderecosLista.add( gerarEndereco() );
-        lista.add( "b" );
-        enderecosLista.add( gerarEndereco() );
-        lista.add( "c" );
-        enderecosLista.add( gerarEndereco() );
-        
-        xEtiquetaFrente = xCentroNo( 0, lista.getSize(), 1 );
+        xEtiquetaFrente = lista.isEmpty() ? ORIGEM_X : xCentroNo( 0, lista.getSize(), 1 );
         
         acoes.add(new TokenAcao("[ remove(i) ]", this::removerPos));
         acoes.add(new TokenAcao("[ set(i,v) ]", this::alterarPos));
         acoes.add(new TokenAcao("[ add(i,v) ]", this::adicionarPos));
         acoes.add(new TokenAcao("[ add(v) · enter ]", this::adicionarFim));
         
-        registrarComando( "add(\"a\")", false );
-        registrarComando( "add(\"b\")", false );
-        registrarComando( "add(\"c\")", false );
+        new Thread(() -> {
+            Scanner s = new Scanner(System.in);
+            while (s.hasNextLine()) {
+                comandosPendentes.add(s.nextLine());
+            }
+        }).start();
     }
 
     @Override
     protected void processarAtalhos() {
         if ( isKeyPressed( KEY_ENTER ) ) {
             adicionarFim();
+        }
+    }
+
+    @Override
+    public void update(double delta) {
+        super.update(delta);
+        String cmd;
+        while ((cmd = comandosPendentes.poll()) != null) {
+            if (cmd.startsWith("ADD ")) {
+                String val = cmd.substring(4);
+                lista.add(val);
+                enderecosLista.add(gerarEndereco());
+                registrarComando("add(\"" + val + "\")", false);
+            } else if (cmd.startsWith("REMOVE ")) {
+                int pos = Integer.parseInt(cmd.substring(7));
+                if (pos >= 0 && pos < lista.getSize()) {
+                    lista.remove(pos);
+                    enderecosLista.remove(pos);
+                    registrarComando("remove(" + pos + ")", false);
+                }
+            } else if (cmd.equals("REMOVE_LAST") && !lista.isEmpty()) {
+                lista.remove(lista.getSize() - 1);
+                enderecosLista.remove(enderecosLista.size() - 1);
+                registrarComando("remove_last", false);
+            } else if (cmd.equals("REMOVE_FIRST") && !lista.isEmpty()) {
+                lista.remove(0);
+                enderecosLista.remove(0);
+                registrarComando("remove_first", false);
+            } else if (cmd.equals("CLEAR")) {
+                lista.clear();
+                enderecosLista.clear();
+                registrarComando("clear", false);
+            }
         }
     }
 
@@ -149,6 +182,7 @@ public class SimuladorLista extends SimuladorBase {
             textoCampo = "";
             tempoEntrada = 1000;
             registrarComando("remove(" + pos + ") → \"" + valor + "\"", false);
+            System.out.println("[Debug] Dispatching remove action for index: " + pos);
         } catch (ListIndexOutOfBoundsException e) {
             registrarComando("pos inválida", true);
         } catch (EmptyListException e) {
@@ -210,14 +244,17 @@ public class SimuladorLista extends SimuladorBase {
                 double xProximo = ( i == n - 1 ) ? -1 : xEsquerdaNo( i + 1, n, escala );
                 double xAnterior = ( i == 0 ) ? -1 : xEsquerdaNo( i - 1, n, escala ) + NO_LARGURA * escala;
                 
-                desenharNo( visao.get( i ), i, CENTRO_Y, xEsq, escala, a, i == 0, xProximo, xAnterior, false );
+                desenharNo( i < visao.size() ? visao.get( i ) : "", i, CENTRO_Y, xEsq, escala, a, i == 0, xProximo, xAnterior, false );
                 
                 double cxNo = xEsq + NO_LARGURA * escala / 2.0;
-                desenharEnderecoNo( enderecosVisao.get( i ), cxNo, escala, a );
+                long end = i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L;
+                desenharEnderecoNo( end, cxNo, escala, a );
                 
                 if ( i < n - 1 && escala > 0.55 ) {
                     double cxDepois = xEsquerdaNo( i + 1, n, escala ) + NO_LARGURA * escala / 2.0;
-                    desenharDelta( enderecosVisao.get( i ), enderecosVisao.get( i + 1 ), ( cxNo + cxDepois ) / 2.0, escala, a );
+                    long endA = i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L;
+                    long endB = (i + 1) < enderecosVisao.size() ? enderecosVisao.get( i + 1 ) : 0L;
+                    desenharDelta( endA, endB, ( cxNo + cxDepois ) / 2.0, escala, a );
                 }
             }
             

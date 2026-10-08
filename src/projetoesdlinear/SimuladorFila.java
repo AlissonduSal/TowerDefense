@@ -23,6 +23,8 @@ public class SimuladorFila extends SimuladorBase {
 
     private Queue<String> fila;
     private double xEtiquetaFim;
+    
+    private java.util.concurrent.ConcurrentLinkedQueue<String> comandosPendentes;
 
     public SimuladorFila() {
         super( "Simulador de Fila" );
@@ -30,22 +32,31 @@ public class SimuladorFila extends SimuladorBase {
 
     @Override
     protected void inicializarEstrutura() {
+        comandosPendentes = new java.util.concurrent.ConcurrentLinkedQueue<>();
         fila = new LinkedQueue<>();
-        fila.enqueue( "a" );
-        enderecos.addLast( gerarEndereco() );
-        fila.enqueue( "b" );
-        enderecos.addLast( gerarEndereco() );
-        fila.enqueue( "c" );
-        enderecos.addLast( gerarEndereco() );
         
-        xEtiquetaFim = xCentroNo( fila.getSize() - 1, fila.getSize(), 1 );
+        xEtiquetaFim = fila.isEmpty() ? ORIGEM_X : xCentroNo( fila.getSize() - 1, fila.getSize(), 1 );
         
         acoes.add(new TokenAcao("[ dequeue · shift+enter ]", this::remover));
         acoes.add(new TokenAcao("[ enqueue · enter ]", this::adicionar));
         
-        registrarComando( "enqueue(\"a\")", false );
-        registrarComando( "enqueue(\"b\")", false );
-        registrarComando( "enqueue(\"c\")", false );
+        new Thread(() -> {
+            java.util.Scanner s = new java.util.Scanner(System.in);
+            while(s.hasNextLine()) {
+                comandosPendentes.add(s.nextLine());
+            }
+        }).start();
+    }
+
+    @Override
+    public void update(double delta) {
+        super.update(delta);
+        String cmd;
+        while ((cmd = comandosPendentes.poll()) != null) {
+            if (cmd.startsWith("ENQUEUE ")) enqueueExterno(cmd.substring(8));
+            else if (cmd.equals("DEQUEUE")) dequeueExterno();
+            else if (cmd.equals("CLEAR")) limparExterno();
+        }
     }
 
     @Override
@@ -90,9 +101,52 @@ public class SimuladorFila extends SimuladorBase {
             nosSaindo.add( saindo );
             tempoEntrada = 1000;
             registrarComando( "dequeue() → \"" + valor + "\"", false );
+            
+            System.out.println("[Debug] Dispatching dequeue action");
+            
         } catch ( EmptyQueueException exc ) {
             registrarComando( "dequeue() em fila vazia", true );
         }
+    }
+
+    public void enqueueExterno(String valor) {
+        if ( valor == null || valor.trim().isEmpty() ) return;
+        fila.enqueue( valor.trim() );
+        enderecos.addLast( gerarEndereco() );
+        tempoEntrada = 0;
+        registrarComando( "enqueue(\"" + valor.trim() + "\") [EXTERNO]", false );
+        atualizarVisao();
+    }
+
+    public void dequeueExterno() {
+        try {
+            NoSaindo saindo = new NoSaindo();
+            saindo.escala = escala;
+            saindo.x = xEsquerdaNo( 0, fila.getSize(), escala );
+            
+            String valor = fila.dequeue();
+            long endereco = enderecos.removeFirst();
+            
+            saindo.valor = valor;
+            saindo.endereco = endereco;
+            nosSaindo.add( saindo );
+            tempoEntrada = 1000;
+            registrarComando( "dequeue() → \"" + valor + "\" [EXTERNO]", false );
+            atualizarVisao();
+        } catch ( EmptyQueueException exc ) {
+            registrarComando( "dequeue() externo em fila vazia", true );
+        }
+    }
+
+    public void limparExterno() {
+        while (!fila.isEmpty()) {
+            try { fila.dequeue(); } catch(Exception e){}
+        }
+        enderecos.clear();
+        nosSaindo.clear();
+        tempoEntrada = DURACAO_ENTRADA;
+        registrarComando("Contexto trocado (Limpeza Externa)", false);
+        atualizarVisao();
     }
 
     @Override
@@ -141,14 +195,17 @@ public class SimuladorFila extends SimuladorBase {
                 }
                 
                 double xProximo = ( i == n - 1 ) ? -1 : xEsquerdaNo( i + 1, n, escala );
-                desenharNo( visao.get( i ), CENTRO_Y, xEsq, escala, a, i == 0, xProximo, false );
+                desenharNo( i < visao.size() ? visao.get( i ) : "", CENTRO_Y, xEsq, escala, a, i == 0, xProximo, false );
                 
                 double cxNo = xEsq + NO_LARGURA * escala / 2.0;
-                desenharEnderecoNo( enderecosVisao.get( i ), cxNo, escala, a );
+                long end = i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L;
+                desenharEnderecoNo( end, cxNo, escala, a );
                 
                 if ( i < n - 1 && escala > 0.55 ) {
                     double cxDepois = xEsquerdaNo( i + 1, n, escala ) + NO_LARGURA * escala / 2.0;
-                    desenharDelta( enderecosVisao.get( i ), enderecosVisao.get( i + 1 ), ( cxNo + cxDepois ) / 2.0, escala, a );
+                    long endA = i < enderecosVisao.size() ? enderecosVisao.get( i ) : 0L;
+                    long endB = (i + 1) < enderecosVisao.size() ? enderecosVisao.get( i + 1 ) : 0L;
+                    desenharDelta( endA, endB, ( cxNo + cxDepois ) / 2.0, escala, a );
                 }
             }
             
